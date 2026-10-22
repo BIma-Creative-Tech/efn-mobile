@@ -1,0 +1,31 @@
+# Dependensi & keluaran build (setiap app berdiri sendiri: apps/<app>/node_modules)
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+coverage/
+
+# Native (expo prebuild) - dibuat ulang dari app.config.ts
+android/
+ios/
+
+# Rahasia & kredensial (tidak pernah di repo)
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+credentials.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+npm-debug.log*

@@ -1,0 +1,119 @@
+/**
+ * Endpoint BFF (docs/04). Semua fungsi menerima `ApiClient` agar bisa diuji dengan fetch palsu.
+ * Brand app memfilter kanal `?brand=<kode>` (L-33); superapp tanpa filter.
+ */
+import type { ApiClient, ApiResult } from './client';
+import {
+  parseAvailability,
+  parseBookingOutlets,
+  parseCart,
+  parseCategories,
+  parseChannels,
+  parseFnbMenu,
+  parseFnbOrders,
+  parseFnbSession,
+  parseMe,
+  parseOrderDetail,
+  parseOrderList,
+  parsePickupCodes,
+  parseProduct,
+  parseProductPage,
+  parseQuote,
+  parseReservation,
+  parseReservationList,
+  parseSlotDay,
+  isImageSha,
+  type Cart,
+} from './types';
+import { parseAltchaChallenge } from '../lib/altcha';
+
+export const TABLE_SESSION_HEADER = 'x-table-session';
+
+/** Terapkan parser ke hasil sukses; parser null → `bad_response`. */
+async function map<T, U>(p: Promise<ApiResult<T>>, parse: (v: unknown) => U | null): Promise<ApiResult<U>> {
+  const r = await p;
+  if (!r.ok) return r;
+  const v = parse(r.data);
+  return v === null ? { ok: false, status: r.status, code: 'bad_response', body: null } : { ok: true, status: r.status, data: v };
+}
+
+const q = (o: Record<string, string | number | null | undefined>) => {
+  const p = Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '');
+  return p.length ? `?${p.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&')}` : '';
+};
+
+export function channelsPath(brandCode: string | null): string {
+  return brandCode && /^[A-Z][A-Z0-9]{1,9}$/.test(brandCode) ? `/v1/catalog/channels${q({ brand: brandCode })}` : '/v1/catalog/channels';
+}
+
+export function imageUrl(baseUrl: string, sha: string | null | undefined, size: 512 | 1024 = 512): string | null {
+  return isImageSha(sha) ? `${baseUrl}/v1/catalog/images/${sha}?size=${size}` : null;
+}
+
+// ---- auth (§3.2, §8.1) ----
+export const getChallenge = (c: ApiClient) => map(c.request('GET', '/v1/auth/challenge'), parseAltchaChallenge);
+export const requestOtp = (c: ApiClient, phone: string, altcha: string) =>
+  map(c.request('POST', '/v1/auth/otp/request', { body: { phone, altcha } }), (v) =>
+    v && typeof v === 'object' && typeof (v as { challenge_id?: unknown }).challenge_id === 'string'
+      ? { challenge_id: (v as { challenge_id: string }).challenge_id, expires_in: Number((v as { expires_in?: unknown }).expires_in) || 180 }
+      : null,
+  );
+export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean) =>
+  map(c.request('POST', '/v1/auth/otp/verify', { body: { challenge_id, code, age_confirmed } }), (v) => {
+    const o = v as { access_token?: unknown; token_type?: unknown; expires_in?: unknown } | null;
+    if (!o || typeof o.access_token !== 'string' || o.access_token.length < 16 || o.access_token.length > 4096) return null;
+    if (typeof o.token_type === 'string' && o.token_type.toLowerCase() !== 'bearer') return null;
+    return { access_token: o.access_token, expires_in: typeof o.expires_in === 'number' && o.expires_in > 0 ? o.expires_in : 3600 };
+  });
+export const getMe = (c: ApiClient) => map(c.request('GET', '/v1/me', { auth: 'required' }), parseMe);
+
+// ---- katalog (§10.3.2, §15.5) ----
+export const getChannels = (c: ApiClient, brandCode: string | null) => map(c.request('GET', channelsPath(brandCode)), parseChannels);
+export const getCategories = (c: ApiClient, channel: string) => map(c.request('GET', `/v1/catalog/categories${q({ channel })}`), parseCategories);
+export const getProducts = (c: ApiClient, p: { channel: string; category?: number | null; q?: string | null; cursor?: string | null; limit?: number }) =>
+  map(
+    c.request('GET', `/v1/catalog/products${q({ channel: p.channel, category: p.category ?? null, q: p.q?.trim().slice(0, 64) || null, cursor: p.cursor ?? null, limit: p.limit ?? 24 })}`),
+    parseProductPage,
+  );
+export const getProduct = (c: ApiClient, channel: string, id: number) => map(c.request('GET', `/v1/catalog/products/${id}${q({ channel })}`), parseProduct);
+export const getPickupSlots = (c: ApiClient, channel: string, outlet: string, date: string) =>
+  map(c.request('GET', `/v1/catalog/slots${q({ channel, outlet, date })}`), parseSlotDay);
+
+// ---- cart / quote / checkout (§10.3.3–10.3.5) ----
+export const getCart = (c: ApiClient) => map(c.request('GET', '/v1/cart', { auth: 'required' }), parseCart);
+export const putCart = (c: ApiClient, cart: Cart) => map(c.request('PUT', '/v1/cart', { auth: 'required', body: cart }), parseCart);
+export const quoteCart = (c: ApiClient) => map(c.request('POST', '/v1/cart/quote', { auth: 'required', body: {} }), parseQuote);
+export const placeOrder = (c: ApiClient, idempotencyKey: string, body: { quote_id: string; accept_total: number; payment_method: 'qris' | 'counter' }) =>
+  map(
+    c.request('POST', '/v1/orders', { auth: 'required', body, headers: { 'idempotency-key': idempotencyKey }, timeoutMs: 30_000 }),
+    (v) => (v && typeof v === 'object' && typeof (v as { order_id?: unknown }).order_id === 'string' ? { order_id: (v as { order_id: string }).order_id } : null),
+  );
+export const listOrders = (c: ApiClient, cursor?: string | null) => map(c.request('GET', `/v1/orders${q({ cursor: cursor ?? null, limit: 20 })}`, { auth: 'required' }), parseOrderList);
+export const getOrder = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}`, { auth: 'required' }), parseOrderDetail);
+export const getPickupCode = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}/pickup-code`, { auth: 'required' }), parsePickupCodes);
+export const cancelOrder = (c: ApiClient, id: string) => c.request('POST', `/v1/orders/${encodeURIComponent(id)}/cancel`, { auth: 'required', body: {} });
+
+// ---- reservasi meja (§15.5) ----
+export const getBookingOutlets = (c: ApiClient) => map(c.request('GET', '/v1/booking/outlets'), parseBookingOutlets);
+export const getAvailability = (c: ApiClient, outlet: string, date: string, party: number) =>
+  map(c.request('GET', `/v1/booking/availability${q({ outlet, date, party })}`), parseAvailability);
+export const createReservation = (
+  c: ApiClient,
+  idempotencyKey: string,
+  body: { outlet_code: string; start_at: string; party_size: number; guest_label?: string; note?: string },
+) => map(c.request('POST', '/v1/booking/reservations', { auth: 'required', body, headers: { 'idempotency-key': idempotencyKey }, timeoutMs: 30_000 }), parseReservation);
+export const listReservations = (c: ApiClient) => map(c.request('GET', '/v1/booking/reservations', { auth: 'required' }), parseReservationList);
+export const getReservation = (c: ApiClient, id: string) => map(c.request('GET', `/v1/booking/reservations/${encodeURIComponent(id)}`, { auth: 'required' }), parseReservation);
+export const cancelReservation = (c: ApiClient, id: string) => c.request('POST', `/v1/booking/reservations/${encodeURIComponent(id)}/cancel`, { auth: 'required', body: {} });
+
+// ---- meja QR (§14.A.3) — token di memori saja, dikirim sebagai header ----
+const ts = (token: string) => ({ [TABLE_SESSION_HEADER]: token });
+export const getFnbSession = (c: ApiClient, token: string) => map(c.request('GET', '/v1/fnb/session', { auth: 'optional', headers: ts(token) }), parseFnbSession);
+export const getFnbMenu = (c: ApiClient, token: string) => map(c.request('GET', '/v1/fnb/menu', { headers: ts(token) }), parseFnbMenu);
+export const submitFnbOrder = (c: ApiClient, token: string, idempotencyKey: string, lines: { product_id: number; qty: number; attribute_value_ids: number[]; note?: string }[]) =>
+  map(c.request('POST', '/v1/fnb/orders', { auth: 'optional', headers: { ...ts(token), 'idempotency-key': idempotencyKey }, body: { lines } }), (v) =>
+    v && typeof v === 'object' && typeof (v as { submission_id?: unknown }).submission_id === 'string'
+      ? { submission_id: (v as { submission_id: string }).submission_id, status: String((v as { status?: unknown }).status ?? 'accepted') }
+      : null,
+  );
+export const listFnbOrders = (c: ApiClient, token: string) => map(c.request('GET', '/v1/fnb/orders', { headers: ts(token) }), parseFnbOrders);
