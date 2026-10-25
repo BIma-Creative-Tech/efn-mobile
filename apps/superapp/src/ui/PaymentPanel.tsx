@@ -1,21 +1,36 @@
 /**
- * Panel pembayaran di detail pesanan (K25-07): QRIS (nyata, dari BFF) + MOCKUP Virtual Account, e-wallet, dan
- * transfer bank dengan unggah bukti. Lihat `src/lib/payment.ts` untuk batas nyata vs mockup.
+ * Panel pembayaran di detail pesanan (K25-07): QRIS dan transfer bank + bukti (nyata, dari BFF, G26 §17) + MOCKUP
+ * Virtual Account dan e-wallet (tahap 2). Lihat `src/lib/payment.ts` untuk batas nyata vs mockup.
  *
  * Aturan tampilan:
  * - Semua angka nominal = `amount_payable` dari BFF (Odoo), tidak pernah dihitung di app.
- * - Data contoh (nomor VA, rekening) diberi label "CONTOH" agar tidak dikira data sungguhan.
- * - Foto bukti hanya ditampilkan di perangkat; mockup tidak mengunggahnya.
+ * - Data contoh (nomor VA) diberi label "CONTOH" agar tidak dikira data sungguhan. Rekening transfer = data BFF.
+ * - Foto bukti diunggah ke BFF lalu dibuang dari memori app; app tidak menyimpannya.
  */
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import type { OrderDetail } from '../api/types';
+import { api } from '../api';
+import { uploadTransferProof } from '../api/bff';
+import { errorMessage } from '../api/errors';
+import type { OrderDetail, TransferPayment, TransferRejectReason } from '../api/types';
 import { brandOfCompany } from '../config/brand';
 import { PAYMENT_MOCKUP } from '../config/env';
-import { formatCountdown, formatRupiah } from '../lib/format';
-import { PAY_GROUP_LABEL, PROOF_ERROR, REJECT_REASONS, checkProof, groupDigits, mockVaNumber, payMethod, type PayMethod, type PayMethodId } from '../lib/payment';
+import { formatCountdown, formatRupiah, remainingSeconds } from '../lib/format';
+import {
+  PAY_GROUP_LABEL,
+  PROOF_ERROR,
+  REJECT_REASON_LABEL,
+  checkProof,
+  groupDigits,
+  mockVaNumber,
+  payMethod,
+  transferStage,
+  type PayMethod,
+  type PayMethodId,
+  type ProofMime,
+} from '../lib/payment';
 import { paymentChoice } from '../state/paymentChoice';
 import { Body, Button, Card, ErrorBanner, InfoBanner, Row, T, Title, font } from './kit';
 import { QrCode } from './QrCode';
@@ -100,18 +115,35 @@ function EwalletPanel({ order, method, left, onSimulate, busy }: { order: OrderD
   );
 }
 
-function TransferPanel({ order, left, onSimulate, busy }: { order: OrderDetail; left: number; onSimulate: (s: SimStatus) => void; busy: boolean }) {
-  const saved = paymentChoice.get(order.order_id)?.transfer;
-  const [stage, setStage] = useState(saved?.stage ?? 'awaiting_proof');
-  const [uri, setUri] = useState<string | null>(saved?.proofUri ?? null);
-  const [reject, setReject] = useState<string | null>(saved?.rejectReason ?? null);
+type TransferDecision = 'approve' | TransferRejectReason;
+
+/**
+ * Transfer bank + bukti (G26 §17.3–17.5), NYATA: rekening PT penjual, nominal, dan kode berita dari BFF; foto diunggah ke
+ * BFF yang meneruskannya ke Verifikator di Odoo. App tidak menyimpan foto (hanya pratinjau di memori sampai dikirim).
+ */
+function TransferPanel({
+  order,
+  transfer,
+  now,
+  onUpdated,
+  onSimulateTransfer,
+  busy,
+}: {
+  order: OrderDetail;
+  transfer: TransferPayment;
+  now: number;
+  onUpdated: () => void;
+  onSimulateTransfer: (d: TransferDecision) => void;
+  busy: boolean;
+}) {
+  const [picked, setPicked] = useState<{ uri: string; mimeType: ProofMime } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const part = order.parts[0];
   const seller = (part && brandOfCompany(part.company_code)?.name) ?? part?.company_code ?? 'gerai';
-
-  function persist(next: { stage: typeof stage; proofUri?: string; rejectReason?: string }) {
-    paymentChoice.set(order.order_id, { method: 'bank_transfer', transfer: next });
-  }
+  const stage = transferStage(transfer, now);
+  const uploadLeft = remainingSeconds(transfer.upload_deadline, now);
+  const acc = transfer.account;
 
   async function pick(source: 'camera' | 'library') {
     setErr(null);
@@ -123,70 +155,120 @@ function TransferPanel({ order, left, onSimulate, busy }: { order: OrderDetail; 
     const a = r.assets[0];
     const check = checkProof({ mimeType: a.mimeType ?? 'image/jpeg', fileSize: a.fileSize, width: a.width, height: a.height });
     if (!check.ok) return setErr(PROOF_ERROR[check.reason]);
-    setUri(a.uri);
+    setPicked({ uri: a.uri, mimeType: check.mimeType });
   }
 
-  function submit() {
-    if (!uri) return;
-    setStage('awaiting_verification');
-    setReject(null);
-    persist({ stage: 'awaiting_verification', proofUri: uri });
+  async function submit() {
+    if (!picked || sending) return;
+    setSending(true);
+    setErr(null);
+    const r = await uploadTransferProof(api, order.order_id, picked);
+    setSending(false);
+    if (r.ok) {
+      setPicked(null);
+      onUpdated();
+      return;
+    }
+    setErr(errorMessage(r.code));
+    // status server mungkin sudah berubah (diputuskan/kedaluwarsa/limit) → muat ulang agar layar sesuai BFF
+    if (r.status === 409 || r.status === 429) onUpdated();
   }
 
-  function rejectSim(reason: string) {
-    setStage('rejected');
-    setReject(reason);
-    setUri(null);
-    persist({ stage: 'rejected', rejectReason: reason });
-  }
-
+  if (stage === 'done') return null;
   return (
     <>
       <Title level={3}>Transfer bank</Title>
-      <Body muted small>
-        Rekening tujuan {seller} (CONTOH)
-      </Body>
-      <Text selectable style={[{ color: T.text, fontSize: 20 }, font.bold]}>
-        Bank CONTOH · 000 000 0000
-      </Text>
-      <Body small>a.n. PT penjual {seller}</Body>
-      <Body>{formatRupiah(order.amount_payable)}</Body>
-      <Body muted small>
-        Unggah bukti dalam {formatCountdown(left)}. Pesanan diproses gerai setelah staf mencocokkan mutasi rekening.
-      </Body>
-
-      {stage === 'rejected' && reject ? <ErrorBanner message={`Bukti ditolak: ${reject}. Unggah ulang bukti yang benar.`} /> : null}
-
-      {stage !== 'awaiting_verification' ? (
-        <View style={{ gap: 8, alignSelf: 'stretch' }}>
-          {uri ? <Image source={{ uri }} style={{ width: '100%', aspectRatio: 3 / 4, borderRadius: T.radius, backgroundColor: T.border }} contentFit="contain" accessible accessibilityLabel="Pratinjau bukti transfer" /> : null}
-          <Row style={{ gap: 8 }}>
-            <Button style={{ flex: 1 }} variant="secondary" title="Kamera" onPress={() => void pick('camera')} />
-            <Button style={{ flex: 1 }} variant="secondary" title="Galeri" onPress={() => void pick('library')} />
-          </Row>
-          <ErrorBanner message={err} />
-          <Button title="Kirim bukti transfer" disabled={!uri} onPress={submit} />
+      {acc ? (
+        <View style={{ gap: 2, alignSelf: 'stretch' }}>
           <Body muted small>
-            Simulasi: foto hanya tersimpan di perangkat ini, tidak diunggah.
+            Rekening tujuan {seller}
           </Body>
+          <Text style={[{ color: T.text, fontSize: 16 }, font.bold]}>{acc.bank_name}</Text>
+          <Text
+            selectable
+            accessibilityLabel={`Nomor rekening ${acc.account_number.split('').join(' ')}`}
+            style={[{ color: T.text, fontSize: 24, letterSpacing: 1 }, font.bold]}
+          >
+            {groupDigits(acc.account_number)}
+          </Text>
+          <Body small>a.n. {acc.account_holder}</Body>
         </View>
       ) : (
+        <Body muted small>
+          Rekening tujuan sedang dimuat…
+        </Body>
+      )}
+      <View style={{ gap: 2, alignSelf: 'stretch' }}>
+        <Body muted small>
+          Nominal (harus sama persis)
+        </Body>
+        <Text selectable style={[{ color: T.text, fontSize: 20 }, font.bold]}>
+          {formatRupiah(order.amount_payable)}
+        </Text>
+      </View>
+      {transfer.transfer_ref ? (
+        <View style={{ gap: 2, alignSelf: 'stretch' }}>
+          <Body muted small>
+            Tulis kode ini di berita transfer
+          </Body>
+          <Text
+            selectable
+            accessibilityLabel={`Kode berita transfer ${transfer.transfer_ref.split('').join(' ')}`}
+            style={[{ color: T.text, fontSize: 22, letterSpacing: 3 }, font.bold]}
+          >
+            {transfer.transfer_ref}
+          </Text>
+        </View>
+      ) : null}
+      <Body muted small>
+        Tekan lama nomor rekening, nominal, atau kode untuk menyalin.
+      </Body>
+
+      {stage === 'upload' ? (
+        <View style={{ gap: 8, alignSelf: 'stretch' }}>
+          {transfer.status === 'rejected' ? (
+            <ErrorBanner
+              message={`Bukti ditolak: ${transfer.reject_reason ? REJECT_REASON_LABEL[transfer.reject_reason] : 'tidak sesuai'}. Unggah ulang bukti yang benar (sisa ${transfer.uploads_left}×).`}
+            />
+          ) : (
+            <Steps items={['Transfer dari m-banking/ATM ke rekening di atas dengan nominal persis.', 'Tulis kode di berita transfer.', 'Foto atau tangkap layar bukti transfer, lalu kirim di sini.']} />
+          )}
+          <Body muted small>
+            Kirim bukti dalam {formatCountdown(uploadLeft)}. Pesanan diproses gerai setelah staf mencocokkan mutasi rekening.
+          </Body>
+          {picked ? (
+            <Image source={{ uri: picked.uri }} style={{ width: '100%', aspectRatio: 3 / 4, borderRadius: T.radius, backgroundColor: T.border }} contentFit="contain" accessible accessibilityLabel="Pratinjau bukti transfer" />
+          ) : null}
+          <Row style={{ gap: 8 }}>
+            <Button style={{ flex: 1 }} variant="secondary" title="Kamera" disabled={sending} onPress={() => void pick('camera')} />
+            <Button style={{ flex: 1 }} variant="secondary" title="Galeri" disabled={sending} onPress={() => void pick('library')} />
+          </Row>
+          <ErrorBanner message={err} />
+          <Button title="Kirim bukti transfer" busy={sending} disabled={!picked} onPress={() => void submit()} />
+          <Body muted small>
+            Foto hanya dipakai staf untuk verifikasi pembayaran dan tidak disimpan di ponsel oleh aplikasi.
+          </Body>
+        </View>
+      ) : stage === 'verifying' ? (
         <View style={{ gap: 8, alignSelf: 'stretch' }} accessibilityLiveRegion="polite">
-          <InfoBanner message="Bukti terkirim. Menunggu verifikasi staf (biasanya beberapa menit pada jam buka gerai)." />
-          {uri ? <Image source={{ uri }} style={{ width: 120, aspectRatio: 3 / 4, borderRadius: T.radius }} contentFit="cover" accessible accessibilityLabel="Bukti transfer terkirim" /> : null}
+          <InfoBanner message="Bukti terkirim. Menunggu verifikasi staf (biasanya beberapa menit pada jam buka gerai). Halaman ini diperbarui otomatis." />
           {PAYMENT_MOCKUP ? (
             <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: T.border, paddingTop: 10 }}>
+              <MockBadge />
               <Body muted small>
-                Simulasi keputusan staf Verifikator Pembayaran:
+                Simulasi keputusan staf Verifikator (hanya dev dengan Odoo mock):
               </Body>
-              <Button title="Simulasi: staf menyetujui" busy={busy} onPress={() => onSimulate('paid')} />
-              {REJECT_REASONS.map((r) => (
-                <Button key={r} variant="danger" title={`Simulasi: ditolak (${r.toLowerCase()})`} disabled={busy} onPress={() => rejectSim(r)} />
+              <Button title="Simulasi: staf menyetujui" busy={busy} onPress={() => onSimulateTransfer('approve')} />
+              {(['amount_mismatch', 'unreadable', 'not_received'] as const).map((r) => (
+                <Button key={r} variant="danger" title={`Simulasi: ditolak (${REJECT_REASON_LABEL[r]})`} disabled={busy} onPress={() => onSimulateTransfer(r)} />
               ))}
-              <Button variant="secondary" title="Simulasi: tidak diverifikasi sampai batas waktu" disabled={busy} onPress={() => onSimulate('expired')} />
             </View>
           ) : null}
         </View>
+      ) : stage === 'limit' ? (
+        <ErrorBanner message={`Bukti ditolak${transfer.reject_reason ? ` (${REJECT_REASON_LABEL[transfer.reject_reason]})` : ''} dan jatah unggah sudah habis. Bila Anda sudah mentransfer, hubungi layanan pelanggan; bila belum, batalkan pesanan.`} />
+      ) : (
+        <ErrorBanner message="Waktu unggah bukti sudah habis. Bila Anda sudah mentransfer, hubungi layanan pelanggan; dana akan dikembalikan bila pesanan kedaluwarsa." />
       )}
     </>
   );
@@ -214,10 +296,36 @@ export function PaymentResult({ status, onShop }: { status: string; onShop: () =
   return null;
 }
 
-export function PaymentPanel({ order, left, busy, onSimulate, onChangeMethod }: { order: OrderDetail; left: number; busy: boolean; onSimulate: (s: SimStatus) => void; onChangeMethod: (m: PayMethodId) => void }) {
+export function PaymentPanel({
+  order,
+  left,
+  now,
+  busy,
+  onSimulate,
+  onSimulateTransfer,
+  onUpdated,
+  onChangeMethod,
+}: {
+  order: OrderDetail;
+  left: number;
+  now: number;
+  busy: boolean;
+  onSimulate: (s: SimStatus) => void;
+  onSimulateTransfer: (d: TransferDecision) => void;
+  onUpdated: () => void;
+  onChangeMethod: (m: PayMethodId) => void;
+}) {
   if (order.status !== 'awaiting_payment') return null;
+  const transfer = order.payment?.transfer ?? null;
+  if (transfer) {
+    return (
+      <Card style={{ gap: 10, alignItems: 'center' }}>
+        <TransferPanel order={order} transfer={transfer} now={now} busy={busy} onUpdated={onUpdated} onSimulateTransfer={onSimulateTransfer} />
+      </Card>
+    );
+  }
   const chosen = PAYMENT_MOCKUP ? payMethod(paymentChoice.get(order.order_id)?.method) : null;
-  const method = chosen ?? payMethod('qris')!;
+  const method = chosen && chosen.group !== 'transfer' ? chosen : payMethod('qris')!;
   const mock = PAYMENT_MOCKUP && method.mockOnly;
   return (
     <Card style={{ gap: 10, alignItems: 'center' }}>
@@ -239,12 +347,10 @@ export function PaymentPanel({ order, left, busy, onSimulate, onChangeMethod }: 
         )
       ) : method.group === 'va' ? (
         <VaPanel order={order} method={method} left={left} onSimulate={onSimulate} busy={busy} />
-      ) : method.group === 'ewallet' ? (
-        <EwalletPanel order={order} method={method} left={left} onSimulate={onSimulate} busy={busy} />
       ) : (
-        <TransferPanel order={order} left={left} onSimulate={onSimulate} busy={busy} />
+        <EwalletPanel order={order} method={method} left={left} onSimulate={onSimulate} busy={busy} />
       )}
-      {mock && method.group !== 'transfer' ? (
+      {mock ? (
         <Button
           variant="secondary"
           title="Ganti ke QRIS"
@@ -261,3 +367,5 @@ export function PaymentPanel({ order, left, busy, onSimulate, onChangeMethod }: 
     </Card>
   );
 }
+
+export type { TransferDecision };

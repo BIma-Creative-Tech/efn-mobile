@@ -88,21 +88,40 @@ describe('keranjang dengan modifier', () => {
 });
 
 describe('mockup pembayaran (K25-07)', () => {
-  it('tidak ada bayar di kasir; tanpa mockup hanya QRIS', () => {
+  it('tidak ada bayar di kasir; tanpa mockup: QRIS + transfer (bila kanal menerimanya)', () => {
     expect(PAY_METHODS.some((m) => (m.id as string) === 'counter')).toBe(false);
-    const s = methodStates({ mockup: false, companyCount: 1, channelModes: [null] });
-    expect(s.map((x) => x.method.id)).toEqual(['qris']);
-    expect(PAY_METHODS.every((m) => m.bffMethod === 'qris')).toBe(true);
+    expect(methodStates({ mockup: false, companyCount: 1, channelModes: [null] }).map((x) => x.method.id)).toEqual(['qris']);
+    const s = methodStates({ mockup: false, companyCount: 1, channelModes: [['qris', 'bank_transfer']] });
+    expect(s.map((x) => [x.method.id, x.enabled])).toEqual([
+      ['qris', true],
+      ['bank_transfer', true],
+    ]);
+    // hanya VA/e-wallet yang dikirim sebagai qris (mockup); transfer dikirim apa adanya
+    expect(PAY_METHODS.filter((m) => m.mockOnly).every((m) => m.bffMethod === 'qris')).toBe(true);
+    expect(PAY_METHODS.find((m) => m.id === 'bank_transfer')).toMatchObject({ bffMethod: 'bank_transfer', mockOnly: false });
   });
   it('mockup menampilkan VA, e-wallet, transfer; transfer hanya 1 PT', () => {
-    const one = methodStates({ mockup: true, companyCount: 1, channelModes: [['qris', 'counter']] });
+    const one = methodStates({ mockup: true, companyCount: 1, channelModes: [['qris', 'bank_transfer']] });
     expect(new Set(one.map((x) => x.method.group))).toEqual(new Set(['qris', 'va', 'ewallet', 'transfer']));
-    const two = methodStates({ mockup: true, companyCount: 2, channelModes: [null, null] });
-    expect(two.find((x) => x.method.id === 'bank_transfer')!.enabled).toBe(false);
+    const two = methodStates({ mockup: true, companyCount: 2, channelModes: [['qris', 'bank_transfer'], ['qris', 'bank_transfer']] });
+    expect(two.find((x) => x.method.id === 'bank_transfer')).toMatchObject({ enabled: false, reason: 'hanya untuk pesanan dari satu brand' });
     expect(two.find((x) => x.method.id === 'va_bca')!.enabled).toBe(true);
+  });
+  it('transfer: disembunyikan bila tidak ada kanal yang menerima; nonaktif bila sebagian kanal', () => {
+    expect(methodStates({ mockup: false, companyCount: 1, channelModes: [['qris']] }).some((x) => x.method.id === 'bank_transfer')).toBe(false);
+    const mixed = methodStates({ mockup: false, companyCount: 1, channelModes: [['qris', 'bank_transfer'], ['qris']] });
+    expect(mixed.find((x) => x.method.id === 'bank_transfer')).toMatchObject({ enabled: false, reason: 'belum tersedia di semua gerai pesanan ini' });
+    // kanal hanya transfer (pilot tanpa vendor gateway, L-103): QRIS nonaktif, transfer jadi default
+    const pilot = methodStates({ mockup: false, companyCount: 1, channelModes: [['bank_transfer']] });
+    expect(pilot.map((x) => [x.method.id, x.enabled])).toEqual([
+      ['qris', false],
+      ['bank_transfer', true],
+    ]);
+    expect(defaultMethod(pilot)).toBe('bank_transfer');
   });
   it('kanal tanpa qris → tidak ada metode sah', () => {
     const s = methodStates({ mockup: true, companyCount: 1, channelModes: [['counter']] });
+    expect(s.some((x) => x.method.id === 'bank_transfer')).toBe(false);
     expect(s.every((x) => !x.enabled)).toBe(true);
     expect(defaultMethod(s)).toBeNull();
   });
@@ -114,7 +133,8 @@ describe('mockup pembayaran (K25-07)', () => {
     expect(groupDigits('9999123412341234')).toBe('9999 1234 1234 1234');
   });
   it('validasi bukti transfer', () => {
-    expect(checkProof({ mimeType: 'image/jpeg', fileSize: 1000, width: 800, height: 1200 })).toEqual({ ok: true });
+    expect(checkProof({ mimeType: 'image/jpeg', fileSize: 1000, width: 800, height: 1200 })).toEqual({ ok: true, mimeType: 'image/jpeg' });
+    expect(checkProof({ mimeType: 'image/JPG' })).toEqual({ ok: true, mimeType: 'image/jpeg' });
     expect(checkProof({ mimeType: 'application/pdf' })).toEqual({ ok: false, reason: 'type' });
     expect(checkProof({ mimeType: 'image/png', fileSize: 9 * 1024 * 1024 })).toEqual({ ok: false, reason: 'size' });
     expect(checkProof({ mimeType: 'image/webp', width: 100, height: 100 })).toEqual({ ok: false, reason: 'dimension' });

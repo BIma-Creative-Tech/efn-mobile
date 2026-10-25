@@ -3,7 +3,7 @@
  * `Idempotency-Key` per percobaan (disimpan di secure store; ketukan ganda/app ditutup tidak membuat pesanan ganda).
  *
  * K25-07 (CLAUDE.md efn-platform): pesanan online wajib lunas sebelum diproses → "bayar di kasir" tidak ditawarkan.
- * VA/e-wallet/transfer = mockup (src/lib/payment.ts); ke BFF tetap dikirim `qris`.
+ * QRIS dan transfer bank + bukti (G26 §17.2) dikirim apa adanya ke BFF; VA/e-wallet = mockup (dikirim `qris`).
  */
 import { useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -80,7 +80,7 @@ export default function Checkout() {
     if (r.ok || isFinalAttemptStatus(r.status)) await keeper.clear();
     setPlacing(false);
     if (r.ok) {
-      if (PAYMENT_MOCKUP) paymentChoice.set(r.data.order_id, { method: chosen.id, ...(chosen.group === 'transfer' ? { transfer: { stage: 'awaiting_proof' as const } } : {}) });
+      if (PAYMENT_MOCKUP && chosen.mockOnly) paymentChoice.set(r.data.order_id, { method: chosen.id });
       cartActions.clearLocal();
       void cartActions.reload();
       router.replace({ pathname: '/pesanan/[id]', params: { id: r.data.order_id } });
@@ -147,6 +147,11 @@ export default function Checkout() {
       <Card style={{ gap: 8 }}>
         <Title level={3}>Metode pembayaran</Title>
         <Body muted small>Pesanan diproses gerai setelah pembayaran diterima.</Body>
+        {current === 'bank_transfer' ? (
+          <Body muted small>
+            Setelah pesanan dibuat, Anda mendapat rekening tujuan dan kode berita transfer. Kirim foto bukti transfer sebelum batas waktu; staf memverifikasi sebelum pesanan diproses.
+          </Body>
+        ) : null}
         {PAYMENT_MOCKUP ? <Body small style={{ color: T.accent }}>Mode simulasi: tidak ada uang sungguhan yang ditarik.</Body> : null}
         {groups.map((grp) => (
           <View key={grp} style={{ gap: 4 }} accessibilityRole="radiogroup" accessibilityLabel={PAY_GROUP_LABEL[grp]}>

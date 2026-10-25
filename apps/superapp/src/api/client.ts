@@ -10,6 +10,11 @@ export type AuthMode = 'none' | 'optional' | 'required';
 
 export interface RequestOptions {
   body?: unknown;
+  /**
+   * Multipart (G26 §17.4 bukti transfer). `content-type` + boundary diisi oleh `fetch` sendiri, jadi header itu
+   * TIDAK di-set di sini. Tidak boleh dipakai bersama `body`.
+   */
+  form?: FormData;
   auth?: AuthMode;
   headers?: Record<string, string>;
   timeoutMs?: number;
@@ -19,7 +24,7 @@ export type ApiResult<T> =
   | { ok: true; status: number; data: T }
   | { ok: false; status: number; code: string; body: unknown };
 
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal; credentials?: 'omit' }) => Promise<{
+export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string | FormData; signal?: AbortSignal; credentials?: 'omit' }) => Promise<{
   status: number;
   text(): Promise<string>;
 }>;
@@ -82,8 +87,11 @@ export function createApiClient(deps: ApiClientDeps): ApiClient {
         return { ok: false, status: 401, code: 'unauthenticated', body: null };
       }
     }
-    let payload: string | undefined;
-    if (opts.body !== undefined) {
+    let payload: string | FormData | undefined;
+    if (opts.form !== undefined) {
+      if (opts.body !== undefined) return { ok: false, status: 0, code: 'invalid_request', body: null };
+      payload = opts.form;
+    } else if (opts.body !== undefined) {
       headers['content-type'] = 'application/json';
       payload = JSON.stringify(opts.body);
     }

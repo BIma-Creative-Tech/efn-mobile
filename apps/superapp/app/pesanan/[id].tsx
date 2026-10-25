@@ -14,7 +14,7 @@ import { formatCountdown, formatDateTime, formatRupiah, remainingSeconds } from 
 import { useApi } from '../../src/ui/hooks';
 import { Body, Button, Card, ErrorBanner, Loading, Row, T, Title, font, styles } from '../../src/ui/kit';
 import { QrCode } from '../../src/ui/QrCode';
-import { PaymentPanel, PaymentResult } from '../../src/ui/PaymentPanel';
+import { PaymentPanel, PaymentResult, type TransferDecision } from '../../src/ui/PaymentPanel';
 import { lineKey } from '../../src/lib/cart';
 import { paymentChoice } from '../../src/state/paymentChoice';
 
@@ -34,7 +34,7 @@ export default function PesananDetail() {
 
   useEffect(() => {
     if (!o) return;
-    const ms = pollIntervalMs(o.status);
+    const ms = pollIntervalMs(o.status, o.payment?.transfer?.status ?? null);
     if (ms === null) return;
     const t = setTimeout(() => void order.reload(), ms);
     return () => clearTimeout(t);
@@ -62,10 +62,10 @@ export default function PesananDetail() {
   if (!o) return <ErrorBanner message={errorMessage(order.error)} onRetry={() => void order.reload()} />;
   const payLeft = remainingSeconds(o.payment?.expires_at ?? o.expires_at, now);
 
-  async function simulate(status: 'paid' | 'expired' | 'failed') {
+  async function simulate(status: 'paid' | 'expired' | 'failed', rejectReason?: Exclude<TransferDecision, 'approve'>) {
     setSimBusy(true);
     setErr(null);
-    const r = await simulatePayment(api, o!.order_id, status);
+    const r = await simulatePayment(api, o!.order_id, status, rejectReason);
     setSimBusy(false);
     if (r.ok) order.setData(r.data);
     else setErr(r.code === 'not_found' ? 'simulation_unavailable' : r.code);
@@ -102,8 +102,11 @@ export default function PesananDetail() {
       <PaymentPanel
         order={o}
         left={payLeft}
+        now={now}
         busy={simBusy}
         onSimulate={(s) => void simulate(s)}
+        onSimulateTransfer={(d) => void (d === 'approve' ? simulate('paid') : simulate('failed', d))}
+        onUpdated={() => void order.reload()}
         onChangeMethod={(m) => {
           paymentChoice.set(o.order_id, { method: m });
           force((x) => x + 1);

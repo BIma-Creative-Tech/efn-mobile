@@ -45,13 +45,16 @@ export interface Outlet {
   slot_enabled: boolean;
   slot_minutes: number | null;
 }
+/** §12.2 + G26 §17.2. `counter` hanya untuk membaca data lama; app tidak menawarkannya lagi (K25-07). */
+export type ChannelPaymentMode = 'qris' | 'counter' | 'bank_transfer';
+const CHANNEL_PAYMENT_MODES: readonly ChannelPaymentMode[] = ['qris', 'counter', 'bank_transfer'];
 export interface Channel {
   channel_code: string;
   company_code: string;
   name: string;
   brand_code: string | null;
   business_type: 'retail' | 'fnb' | null;
-  payment_modes: ('qris' | 'counter')[] | null;
+  payment_modes: ChannelPaymentMode[] | null;
   fulfilment: { pickup: boolean; delivery: boolean; scheduled: boolean };
   outlets: Outlet[];
 }
@@ -73,7 +76,9 @@ export function parseChannels(v: unknown): Channel[] | null {
         slot_minutes: posInt(o.slot_minutes),
       });
     }
-    const modes = Array.isArray(c.payment_modes) ? c.payment_modes.filter((m): m is 'qris' | 'counter' => m === 'qris' || m === 'counter') : null;
+    const modes = Array.isArray(c.payment_modes)
+      ? [...new Set(c.payment_modes.filter((m): m is ChannelPaymentMode => (CHANNEL_PAYMENT_MODES as readonly unknown[]).includes(m)))]
+      : null;
     out.push({
       channel_code: c.channel_code,
       company_code: str(c.company_code, 16) ?? c.channel_code,
@@ -320,6 +325,59 @@ export interface OrderPayment {
   qr_string: string | null;
   counter_code: string | null;
   expires_at: string | null;
+  /** G26 §17.3: hanya untuk `method: "bank_transfer"`, selain itu null. */
+  transfer: TransferPayment | null;
+}
+
+// ---------- transfer bank + bukti (G26 docs/04 §17.3–17.4) ----------
+export type TransferStatus = 'awaiting_proof' | 'awaiting_verification' | 'rejected' | 'none';
+export type TransferRejectReason = 'amount_mismatch' | 'unreadable' | 'wrong_account' | 'not_received' | 'duplicate_proof';
+export const TRANSFER_REJECT_REASONS: readonly TransferRejectReason[] = ['amount_mismatch', 'unreadable', 'wrong_account', 'not_received', 'duplicate_proof'];
+const TRANSFER_STATUSES: readonly TransferStatus[] = ['awaiting_proof', 'awaiting_verification', 'rejected', 'none'];
+/** Kode berita transfer: 8 karakter alfabet §10.2 (tanpa 0/O/1/I/L). */
+export const TRANSFER_REF_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/;
+export interface TransferAccount {
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
+}
+export interface TransferPayment {
+  status: TransferStatus;
+  /** Rekening PT penjual (bukan data pribadi pelanggan). Hanya ada selama `awaiting_payment`. */
+  account: TransferAccount | null;
+  transfer_ref: string | null;
+  uploads_left: number;
+  reject_reason: TransferRejectReason | null;
+  upload_deadline: string | null;
+}
+/**
+ * Parser blok `payment` metode `bank_transfer`. `open` = order masih `awaiting_payment`; di luar itu rekening, kode, dan
+ * alasan tolak dibuang walau server mengirimnya (pola L-52: data bayar hanya tampil selama menunggu bayar).
+ */
+export function parseTransferPayment(p: unknown, open: boolean): TransferPayment | null {
+  if (!isObj(p) || p.method !== 'bank_transfer') return null;
+  const st = (TRANSFER_STATUSES as readonly unknown[]).includes(p.status) ? (p.status as TransferStatus) : 'none';
+  let account: TransferAccount | null = null;
+  if (open && isObj(p.account)) {
+    const a = p.account;
+    const digits = typeof a.account_number === 'string' ? a.account_number.replace(/[\s-]/g, '') : '';
+    const bank = str(a.bank_name, 60);
+    const holder = str(a.account_holder, 120);
+    if (/^\d{5,20}$/.test(digits) && bank && holder) account = { bank_name: bank, account_number: digits, account_holder: holder };
+  }
+  const uploads = typeof p.uploads_left === 'number' && Number.isSafeInteger(p.uploads_left) ? Math.min(Math.max(p.uploads_left, 0), 10) : 0;
+  return {
+    status: open ? st : 'none',
+    account,
+    transfer_ref: open && typeof p.transfer_ref === 'string' && TRANSFER_REF_RE.test(p.transfer_ref) ? p.transfer_ref : null,
+    uploads_left: uploads,
+    reject_reason: open && (TRANSFER_REJECT_REASONS as readonly unknown[]).includes(p.reject_reason) ? (p.reject_reason as TransferRejectReason) : null,
+    upload_deadline: str(p.upload_deadline, 40),
+  };
+}
+/** Respons `POST /v1/orders/:id/transfer-proof` → `202 { payment }` (§17.4). */
+export function parseTransferProofResponse(v: unknown): TransferPayment | null {
+  return isObj(v) ? parseTransferPayment(v.payment, true) : null;
 }
 export interface OrderPart {
   channel_code: string;
@@ -360,6 +418,7 @@ export function parseOrderDetail(v: unknown): OrderDetail | null {
       qr_string: st === 'awaiting_payment' && typeof p.qr_string === 'string' && p.qr_string.length <= 2048 ? p.qr_string : null,
       counter_code: st === 'awaiting_counter_payment' && typeof p.counter_code === 'string' && PICKUP_CODE_RE.test(p.counter_code) ? p.counter_code : null,
       expires_at: str(p.expires_at, 40),
+      transfer: parseTransferPayment(p, st === 'awaiting_payment'),
     };
   }
   const parts: OrderPart[] = [];
@@ -435,10 +494,14 @@ export const partStatusLabel = (s: string) => PART_STATUS_LABEL[s] ?? 'Status ti
 export const FINAL_ORDER_STATUSES = ['completed', 'cancelled', 'expired', 'failed'];
 export const canCancelOrder = (s: string) => ['created', 'awaiting_payment', 'awaiting_counter_payment'].includes(s);
 export const hasPickupCode = (o: Pick<OrderDetail, 'parts'>) => o.parts.some((p) => p.status === 'confirmed' || p.status === 'ready');
-/** Polling §10.3.6: 3 dtk menunggu bayar QRIS, 10 dtk menunggu kasir, 30 dtk sesudahnya, berhenti di final. */
-export function pollIntervalMs(status: string): number | null {
+/**
+ * Polling §10.3.6: 3 dtk menunggu bayar QRIS, 10 dtk menunggu kasir, 30 dtk sesudahnya, berhenti di final.
+ * G26 transfer bank: keputusan datang dari staf (menit), jadi 10 dtk saat diverifikasi dan 30 dtk saat menunggu bukti.
+ */
+export function pollIntervalMs(status: string, transfer?: TransferStatus | null): number | null {
   if (FINAL_ORDER_STATUSES.includes(status)) return null;
   if (status === 'awaiting_counter_payment') return 10_000;
+  if (status === 'awaiting_payment' && transfer && transfer !== 'none') return transfer === 'awaiting_verification' ? 10_000 : 30_000;
   return status === 'awaiting_payment' || status === 'created' ? 3_000 : 30_000;
 }
 

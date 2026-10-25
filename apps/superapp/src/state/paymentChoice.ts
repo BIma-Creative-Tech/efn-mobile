@@ -1,13 +1,12 @@
 /**
- * Pilihan metode bayar per pesanan, disimpan di memori perangkat saja (mockup K25-07).
- * Kontrak BFF saat ini hanya mengenal `qris`, jadi pilihan VA/e-wallet/transfer tidak tersimpan di server.
- * Setelah app ditutup, pesanan kembali tampil sebagai QRIS — itu batas mockup, bukan bug.
+ * Pilihan tampilan VA/e-wallet per pesanan, di memori perangkat saja (mockup K25-07, tahap 2 §17.7).
+ * BFF belum mengenal VA/e-wallet, jadi pesanan itu tersimpan di server sebagai `qris`. Setelah app ditutup, pesanan
+ * kembali tampil sebagai QRIS: itu batas mockup, bukan bug. Transfer bank TIDAK di sini (nyata, dari BFF).
  */
-import type { PayMethodId, TransferStage } from '../lib/payment';
+import type { PayMethodId } from '../lib/payment';
 
 interface Choice {
   method: PayMethodId;
-  transfer?: { stage: TransferStage; proofUri?: string; rejectReason?: string };
 }
 
 const choices = new Map<string, Choice>();

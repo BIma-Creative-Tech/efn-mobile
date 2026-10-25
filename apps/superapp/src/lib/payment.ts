@@ -1,32 +1,34 @@
 /**
- * Metode bayar pesanan online + MOCKUP payment gateway (K25-07, CLAUDE.md efn-platform). Modul MURNI (diuji).
+ * Metode bayar pesanan online (K25-07, docs/04 §17). Modul MURNI (diuji).
  *
  * Aturan K25-07: setiap pesanan online wajib LUNAS sebelum diproses gerai, juga untuk ambil di toko dan pre-order.
  * Karena itu app tidak lagi menawarkan "bayar di kasir" (`counter`) untuk pesanan online.
  *
  * Apa yang NYATA dan apa yang MOCKUP:
- * - `qris`: nyata di sisi kontrak. BFF membuat payment intent QRIS (provider `mock` di dev/staging, xendit/midtrans
- *   setelah ADR-016). Status lunas datang dari BFF (webhook/getStatus), bukan dari app.
- * - VA, e-wallet, unggah bukti transfer: **BELUM ADA di kontrak BFF** (docs/04 belum direvisi). Di build mockup,
- *   pesanan tetap dibuat sebagai intent `qris` di BFF; app hanya MENAMPILKAN alur metode lain, dan tombol "simulasi"
- *   memanggil `POST /v1/orders/:id/simulate-payment` (BFF menolak 404 di production / provider ≠ mock).
- *   Foto bukti transfer TIDAK diunggah ke mana pun di mockup ini.
- * - Mockup hanya aktif bila build memasang `EFN_PAYMENT_MOCKUP=true` (app.config.ts → `extra.paymentMockup`).
+ * - `qris`: nyata. BFF membuat payment intent QRIS (provider `mock` di dev/staging, xendit/midtrans setelah ADR-016).
+ * - `bank_transfer` (G26 §17.2–17.5): nyata. Rekening PT penjual + kode berita dari BFF, foto bukti diunggah ke BFF
+ *   (`POST /v1/orders/:id/transfer-proof`), lalu diverifikasi staf Verifikator Pembayaran di Odoo. Hanya satu brand/PT.
+ * - VA & e-wallet: kontrak §17 sudah ada, tetapi BFF baru membangunnya di tahap 2 (butuh payment gateway). Di build
+ *   mockup (`EFN_PAYMENT_MOCKUP=true`) app hanya MENAMPILKAN alurnya; pesanan dibuat sebagai `qris` di BFF dan tombol
+ *   "simulasi" memanggil `simulate-payment` (BFF menolak 404 di production / provider ≠ mock).
  */
+import type { TransferPayment, TransferRejectReason } from '../api/types';
 
 export type PayGroup = 'qris' | 'va' | 'ewallet' | 'transfer';
 export type PayMethodId = 'qris' | 'va_bca' | 'va_mandiri' | 'va_bni' | 'va_bri' | 'ewallet_gopay' | 'ewallet_ovo' | 'ewallet_dana' | 'ewallet_shopeepay' | 'bank_transfer';
+/** Nilai `payment_method` yang dikirim ke BFF (§10.3.5 + §17.2). */
+export type BffPayMethod = 'qris' | 'bank_transfer';
 
 export interface PayMethod {
   id: PayMethodId;
   group: PayGroup;
   label: string;
   note: string;
-  /** Metode yang dikirim ke BFF saat membuat pesanan (kontrak saat ini hanya `qris`). */
-  bffMethod: 'qris';
-  /** true = hanya tampilan mockup (belum ada di kontrak BFF). */
+  /** Metode yang dikirim ke BFF saat membuat pesanan. */
+  bffMethod: BffPayMethod;
+  /** true = hanya tampilan mockup (BFF belum membangunnya). */
   mockOnly: boolean;
-  /** true = hanya boleh untuk pesanan satu PT (rekening tujuan per PT penjual, K25-07). */
+  /** true = hanya boleh untuk pesanan satu PT (rekening tujuan per PT penjual, §17.2). */
   singleCompanyOnly: boolean;
 }
 
@@ -40,7 +42,7 @@ export const PAY_METHODS: readonly PayMethod[] = [
   { id: 'ewallet_ovo', group: 'ewallet', label: 'OVO', note: 'notifikasi di aplikasi OVO', bffMethod: 'qris', mockOnly: true, singleCompanyOnly: false },
   { id: 'ewallet_dana', group: 'ewallet', label: 'DANA', note: 'diarahkan ke aplikasi', bffMethod: 'qris', mockOnly: true, singleCompanyOnly: false },
   { id: 'ewallet_shopeepay', group: 'ewallet', label: 'ShopeePay', note: 'diarahkan ke aplikasi', bffMethod: 'qris', mockOnly: true, singleCompanyOnly: false },
-  { id: 'bank_transfer', group: 'transfer', label: 'Transfer bank + unggah bukti', note: 'dicek staf sebelum diproses', bffMethod: 'qris', mockOnly: true, singleCompanyOnly: true },
+  { id: 'bank_transfer', group: 'transfer', label: 'Transfer bank + unggah bukti', note: 'dicek staf sebelum diproses', bffMethod: 'bank_transfer', mockOnly: false, singleCompanyOnly: true },
 ];
 
 export const PAY_GROUP_LABEL: Record<PayGroup, string> = {
@@ -59,20 +61,26 @@ export interface MethodContext {
   mockup: boolean;
   /** Jumlah PT (bagian pesanan) dalam quote. */
   companyCount: number;
-  /** `payment_modes` setiap kanal dalam quote (null = kanal tidak membatasi). */
+  /**
+   * `payment_modes` setiap kanal dalam quote. null = BFF lama tanpa daftar → hanya `qris` yang dianggap sah
+   * (metode baru tidak pernah ditawarkan tanpa konfirmasi server).
+   */
   channelModes: readonly (readonly string[] | null)[];
 }
 
 export type MethodState = { method: PayMethod; enabled: boolean; reason: string | null };
 
 /**
- * Daftar metode yang ditampilkan di checkout. Tidak ada `counter` (K25-07). Bila ada kanal yang tidak menerima `qris`,
- * tidak ada metode prabayar yang sah → semua nonaktif (pesanan tidak bisa dibuat; BFF juga akan menolak).
+ * Daftar metode yang ditampilkan di checkout. Tidak ada `counter` (K25-07). Metode sah bila SEMUA kanal di quote
+ * menerimanya (BFF memeriksa hal yang sama: env ∩ `payment_modes`, §17.2). Metode BFF yang tidak diterima satu pun
+ * kanal disembunyikan (bukan dinonaktifkan) agar daftar tidak penuh pilihan mati.
  */
 export function methodStates(ctx: MethodContext): MethodState[] {
-  const qrisAllowed = ctx.channelModes.every((m) => m === null || m.includes('qris'));
-  return PAY_METHODS.filter((m) => !m.mockOnly || ctx.mockup).map((method) => {
-    if (!qrisAllowed) return { method, enabled: false, reason: 'gerai belum menerima pembayaran online' };
+  const modes = ctx.channelModes.map((m) => m ?? ['qris']);
+  const allow = (bff: BffPayMethod) => modes.length > 0 && modes.every((m) => m.includes(bff));
+  const any = (bff: BffPayMethod) => modes.some((m) => m.includes(bff));
+  return PAY_METHODS.filter((m) => (!m.mockOnly || ctx.mockup) && (m.bffMethod === 'qris' || any(m.bffMethod))).map((method) => {
+    if (!allow(method.bffMethod)) return { method, enabled: false, reason: method.bffMethod === 'qris' ? 'gerai belum menerima pembayaran online' : 'belum tersedia di semua gerai pesanan ini' };
     if (method.singleCompanyOnly && ctx.companyCount > 1) return { method, enabled: false, reason: 'hanya untuk pesanan dari satu brand' };
     return { method, enabled: true, reason: null };
   });
@@ -95,16 +103,17 @@ export function mockVaNumber(orderId: string, method: PayMethodId): string {
   return `9999${String(h).padStart(12, '0')}`;
 }
 
-/** Kelompokkan 4 digit untuk dibaca (VA). */
+/** Kelompokkan 4 digit untuk dibaca (VA, nomor rekening). */
 export function groupDigits(s: string): string {
   return s.replace(/(\d{4})(?=\d)/g, '$1 ');
 }
 
-// ---------- bukti transfer (mockup) ----------
+// ---------- bukti transfer (G26 §17.4) ----------
 
-/** Sama dengan batas foto Price Hunter di BFF (`MARKET_SCOUT_MAX_BYTES`, 8 MB) — pipeline gambar yang sama (K25-07). */
+/** = `ONLINE_TRANSFER_MAX_BYTES` default BFF (8 MB, sama dengan Price Hunter). Server me-re-encode ≤ 1600 px. */
 export const PROOF_MAX_BYTES = 8 * 1024 * 1024;
 export const PROOF_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export type ProofMime = (typeof PROOF_MIME)[number];
 
 export interface ProofFile {
   mimeType?: string | null;
@@ -112,15 +121,15 @@ export interface ProofFile {
   width?: number | null;
   height?: number | null;
 }
-export type ProofCheck = { ok: true } | { ok: false; reason: 'type' | 'size' | 'dimension' };
+export type ProofCheck = { ok: true; mimeType: ProofMime } | { ok: false; reason: 'type' | 'size' | 'dimension' };
 
-/** Validasi di app hanya untuk UX; server kelak memvalidasi magic bytes & me-re-encode (BFF market-scout pipeline). */
+/** Validasi di app hanya untuk UX; server memvalidasi magic bytes, decode penuh, dan me-re-encode (§17.4 no. 2). */
 export function checkProof(f: ProofFile): ProofCheck {
-  const mime = (f.mimeType ?? '').toLowerCase();
+  const mime = (f.mimeType ?? '').toLowerCase() === 'image/jpg' ? 'image/jpeg' : (f.mimeType ?? '').toLowerCase();
   if (!(PROOF_MIME as readonly string[]).includes(mime)) return { ok: false, reason: 'type' };
   if (typeof f.fileSize === 'number' && f.fileSize > PROOF_MAX_BYTES) return { ok: false, reason: 'size' };
   if (typeof f.width === 'number' && typeof f.height === 'number' && (f.width < 200 || f.height < 200)) return { ok: false, reason: 'dimension' };
-  return { ok: true };
+  return { ok: true, mimeType: mime as ProofMime };
 }
 
 export const PROOF_ERROR: Record<'type' | 'size' | 'dimension', string> = {
@@ -129,7 +138,30 @@ export const PROOF_ERROR: Record<'type' | 'size' | 'dimension', string> = {
   dimension: 'Foto terlalu kecil untuk dibaca. Ambil ulang dengan jelas.',
 };
 
-/** Status alur transfer manual (mockup, di perangkat). */
-export type TransferStage = 'awaiting_proof' | 'awaiting_verification' | 'rejected';
+/** Alasan tolak Verifikator (kode allowlist §17.3 → teks pelanggan). Kode asing tidak pernah sampai (parser). */
+export const REJECT_REASON_LABEL: Record<TransferRejectReason, string> = {
+  amount_mismatch: 'nominal transfer tidak sama dengan total pesanan',
+  unreadable: 'foto bukti tidak terbaca',
+  wrong_account: 'transfer ke rekening yang salah',
+  not_received: 'dana belum masuk ke rekening penjual',
+  duplicate_proof: 'bukti ini sudah pernah dipakai',
+};
 
-export const REJECT_REASONS = ['Nominal tidak sesuai', 'Foto tidak terbaca', 'Rekening tujuan salah'] as const;
+/**
+ * Tahap layar transfer (dari blok `payment` BFF + jam perangkat; BFF tetap penentu):
+ * - `upload`: boleh unggah (pertama kali atau setelah ditolak);
+ * - `verifying`: bukti sedang diperiksa staf;
+ * - `closed`: batas unggah lewat (`upload_deadline`) tanpa bukti yang sedang diperiksa;
+ * - `limit`: jatah unggah habis setelah ditolak;
+ * - `done`: tidak lagi menunggu bayar (status `none`).
+ */
+export type TransferStage = 'upload' | 'verifying' | 'closed' | 'limit' | 'done';
+
+export function transferStage(t: TransferPayment, nowMs: number): TransferStage {
+  if (t.status === 'none') return 'done';
+  if (t.status === 'awaiting_verification') return 'verifying';
+  if (t.uploads_left <= 0) return 'limit';
+  const deadline = t.upload_deadline ? Date.parse(t.upload_deadline) : NaN;
+  if (Number.isFinite(deadline) && nowMs >= deadline) return 'closed';
+  return 'upload';
+}

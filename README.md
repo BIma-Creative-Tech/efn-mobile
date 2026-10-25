@@ -41,13 +41,22 @@ Hanya `apps/superapp` (K25-03: app brand dibekukan).
   Kontrak BFF sudah ada (G22 B-2/B-4: `attributes`, `attribute_value_ids`, `attributes_text`). Produk sama dengan pilihan
   berbeda = baris keranjang berbeda. Logika disalin dari web `superapp-web/lib/attributes.ts` (tanpa paket bersama).
 - **Bayar dulu** (K25-07): checkout tidak lagi menawarkan "bayar di kasir".
+- **Transfer bank + bukti = NYATA** (efn-platform docs/04 §17.2–17.5, G26):
+  - Ditawarkan bila semua kanal di keranjang memuat `bank_transfer` di `payment_modes`, dan hanya untuk pesanan dari
+    satu brand/PT.
+  - Checkout mengirim `payment_method: "bank_transfer"`. Detail pesanan menampilkan rekening PT penjual, nominal, dan
+    kode berita transfer dari BFF.
+  - Foto bukti diunggah ke `POST /v1/orders/:id/transfer-proof` (multipart `photo`). App tidak menyimpannya.
+  - Status: menunggu bukti → diverifikasi staf (polling 10 dtk) → ditolak (alasan + sisa unggah) / lunas.
+  - Logika murni: `src/lib/payment.ts` (`transferStage`, `REJECT_REASON_LABEL`) dan parser `parseTransferPayment`
+    (`src/api/types.ts`). Test: `__tests__/transfer.test.ts`.
 - **Mockup payment gateway** (`EFN_PAYMENT_MOCKUP=true` saat build/start; default mati):
   - QRIS = alur nyata BFF (provider `mock` di dev/staging).
-  - Virtual Account, e-wallet, dan transfer + unggah bukti = **tampilan saja**. Kontrak BFF belum punya metode ini,
-    jadi pesanan tetap dibuat sebagai `qris`. Pilihan metode hanya tersimpan di memori perangkat
-    (`src/state/paymentChoice.ts`); foto bukti **tidak diunggah**.
+  - Virtual Account dan e-wallet = **tampilan saja** sampai BFF tahap 2 (§17.7), jadi pesanan dibuat sebagai `qris`.
+    Pilihan metode hanya tersimpan di memori perangkat (`src/state/paymentChoice.ts`).
   - Tombol simulasi memanggil `POST /v1/orders/:id/simulate-payment` (BFF menolak 404 di production / provider ≠ mock).
-  - Nomor VA & rekening diberi label CONTOH (VA berawalan `9999`).
+    Untuk transfer, tombol meniru keputusan Verifikator (setujui / tolak + alasan); hanya bekerja dengan Odoo mock BFF.
+  - Nomor VA diberi label CONTOH (berawalan `9999`).
 
 ```bash
 EFN_PAYMENT_MOCKUP=true EFN_API_BASE_URL=https://api.efn.local npx expo start

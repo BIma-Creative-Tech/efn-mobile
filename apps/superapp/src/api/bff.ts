@@ -22,8 +22,10 @@ import {
   parseReservation,
   parseReservationList,
   parseSlotDay,
+  parseTransferProofResponse,
   isImageSha,
   type Cart,
+  type TransferRejectReason,
 } from './types';
 import { parseAltchaChallenge } from '../lib/altcha';
 
@@ -83,7 +85,7 @@ export const getPickupSlots = (c: ApiClient, channel: string, outlet: string, da
 export const getCart = (c: ApiClient) => map(c.request('GET', '/v1/cart', { auth: 'required' }), parseCart);
 export const putCart = (c: ApiClient, cart: Cart) => map(c.request('PUT', '/v1/cart', { auth: 'required', body: cart }), parseCart);
 export const quoteCart = (c: ApiClient) => map(c.request('POST', '/v1/cart/quote', { auth: 'required', body: {} }), parseQuote);
-export const placeOrder = (c: ApiClient, idempotencyKey: string, body: { quote_id: string; accept_total: number; payment_method: 'qris' | 'counter' }) =>
+export const placeOrder = (c: ApiClient, idempotencyKey: string, body: { quote_id: string; accept_total: number; payment_method: 'qris' | 'bank_transfer' }) =>
   map(
     c.request('POST', '/v1/orders', { auth: 'required', body, headers: { 'idempotency-key': idempotencyKey }, timeoutMs: 30_000 }),
     (v) => (v && typeof v === 'object' && typeof (v as { order_id?: unknown }).order_id === 'string' ? { order_id: (v as { order_id: string }).order_id } : null),
@@ -91,13 +93,26 @@ export const placeOrder = (c: ApiClient, idempotencyKey: string, body: { quote_i
 export const listOrders = (c: ApiClient, cursor?: string | null) => map(c.request('GET', `/v1/orders${q({ cursor: cursor ?? null, limit: 20 })}`, { auth: 'required' }), parseOrderList);
 export const getOrder = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}`, { auth: 'required' }), parseOrderDetail);
 export const getPickupCode = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}/pickup-code`, { auth: 'required' }), parsePickupCodes);
+/**
+ * G26 §17.4: unggah foto bukti transfer (multipart, tepat satu berkas `photo`, tanpa field lain) → `202 { payment }`.
+ * `file` = berkas lokal hasil kamera/galeri (React Native FormData `{ uri, name, type }`). Foto tidak di-log.
+ */
+export function uploadTransferProof(c: ApiClient, id: string, file: { uri: string; mimeType: string }) {
+  const form = new FormData();
+  const ext = file.mimeType === 'image/png' ? 'png' : file.mimeType === 'image/webp' ? 'webp' : 'jpg';
+  form.append('photo', { uri: file.uri, name: `bukti.${ext}`, type: file.mimeType } as unknown as Blob);
+  return map(c.request('POST', `/v1/orders/${encodeURIComponent(id)}/transfer-proof`, { auth: 'required', form, timeoutMs: 60_000 }), parseTransferProofResponse);
+}
 export const cancelOrder = (c: ApiClient, id: string) => c.request('POST', `/v1/orders/${encodeURIComponent(id)}/cancel`, { auth: 'required', body: {} });
 /**
  * DEV/STAGING SAJA (docs/04 §10.7): simulasi hasil pembayaran provider `mock`. BFF menjawab 404 di production atau bila
  * provider bukan mock, jadi aman walau terpanggil. App hanya memanggilnya di build mockup (`extra.paymentMockup`).
  */
-export const simulatePayment = (c: ApiClient, id: string, status: 'paid' | 'expired' | 'failed') =>
-  map(c.request('POST', `/v1/orders/${encodeURIComponent(id)}/simulate-payment`, { auth: 'required', body: { status } }), parseOrderDetail);
+export const simulatePayment = (c: ApiClient, id: string, status: 'paid' | 'expired' | 'failed', rejectReason?: TransferRejectReason) =>
+  map(
+    c.request('POST', `/v1/orders/${encodeURIComponent(id)}/simulate-payment`, { auth: 'required', body: rejectReason ? { status, reject_reason: rejectReason } : { status } }),
+    parseOrderDetail,
+  );
 
 // ---- reservasi meja (§15.5) ----
 export const getBookingOutlets = (c: ApiClient) => map(c.request('GET', '/v1/booking/outlets'), parseBookingOutlets);
