@@ -38,6 +38,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['expo-camera', { cameraPermission: 'Kamera dipakai untuk memindai kode QR di meja gerai.', recordAudioAndroid: false }],
     'expo-notifications',
     ['expo-image-picker', { photosPermission: 'Galeri dipakai untuk memilih foto bukti transfer.', cameraPermission: 'Kamera dipakai untuk memotret bukti transfer dan memindai QR meja.', microphonePermission: false }],
+    // DEV SAJA: no-op tanpa EFN_DEV_CA_FILE (APK uji BlueStacks/LAN mempercayai CA dev untuk host BFF dev saja).
+    './plugins/with-dev-ca',
   ],
   experiments: { typedRoutes: false },
   extra: {

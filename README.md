@@ -62,6 +62,21 @@ Hanya `apps/superapp` (K25-03: app brand dibekukan).
 EFN_PAYMENT_MOCKUP=true EFN_API_BASE_URL=https://api.efn.local npx expo start
 ```
 
+## APK uji di BlueStacks / HP di LAN (dev saja)
+
+Emulator tidak bisa memakai `api.efn.local` (hosts file laptop). Pakai host `nip.io` yang menunjuk ke IP LAN laptop
+(contoh `api.192-168-3-117.nip.io` → 192.168.3.117) dan CA dev lokal:
+
+1. efn-platform: `infra/traefik/dev/local/` (gitignored) berisi CA dev lokal (`ca.crt`), sertifikat
+   `api.<ip>.nip.io` + kunci, dan router Traefik `bluestacks.yml` (path publik sama dengan router `api`; `/v1/pos`,
+   `/internal`, `/v1/webhooks`, `/metrics` tidak lewat). Kunci CA di `secrets/dev_local_ca_key.txt`, bukan di folder
+   yang di-mount Traefik.
+2. Build APK (release bundle, debug-signed) dengan `EFN_API_BASE_URL=https://api.<ip>.nip.io`,
+   `EFN_DEV_CA_FILE=<ca.crt>`, opsional `EFN_PAYMENT_MOCKUP=true`. Plugin `plugins/with-dev-ca.js` menambahkan
+   Network Security Config yang mempercayai CA dev **hanya untuk host itu**. Tanpa `EFN_DEV_CA_FILE` plugin no-op.
+3. Jangan pakai APK ini di luar uji dev: debug-signed, mempercayai CA dev, dan menunjuk IP LAN laptop.
+4. Windows Firewall harus mengizinkan port 443 masuk dari jaringan lokal. IP laptop berubah → sertifikat & APK dibuat ulang.
+
 ## Aturan
 
 - Jangan menambah paket bersama antar app; perbedaan antar brand cukup di `src/config/brand.ts` app itu.
