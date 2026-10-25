@@ -22,7 +22,7 @@ import { brandOfCompany } from '../src/config/brand';
 import { checkoutFingerprint } from '../src/lib/cart';
 import { formatRupiah } from '../src/lib/format';
 import { createIdempotencyKeeper, isFinalAttemptStatus } from '../src/lib/idempotency';
-import { askNotificationsAfterFirstSuccess } from '../src/lib/notifications';
+import { shouldOfferNotificationsAfterFirstSuccess } from '../src/lib/notifications';
 import { cartActions } from '../src/state/cart';
 import { useChannels } from '../src/state/channels';
 import { useLoggedIn } from '../src/ui/hooks';
@@ -83,8 +83,9 @@ export default function Checkout() {
       if (PAYMENT_MOCKUP) paymentChoice.set(r.data.order_id, { method: chosen.id, ...(chosen.group === 'transfer' ? { transfer: { stage: 'awaiting_proof' as const } } : {}) });
       cartActions.clearLocal();
       void cartActions.reload();
-      void askNotificationsAfterFirstSuccess();
       router.replace({ pathname: '/pesanan/[id]', params: { id: r.data.order_id } });
+      // Layar penjelasan izin di atas detail pesanan (sekali saja, bukan dialog OS langsung).
+      if (await shouldOfferNotificationsAfterFirstSuccess()) router.push({ pathname: '/izin-notifikasi', params: { context: 'order' } });
       return;
     }
     if (r.code === 'idempotency_conflict') return router.replace('/(tabs)/pesanan');

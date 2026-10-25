@@ -15,7 +15,7 @@ import { APP, brandOfCompany } from '../../src/config/brand';
 import { DEFAULT_TZ, dateKeyLabel, formatSlot, nextDateKeys } from '../../src/lib/format';
 import { GUEST_LABEL_MAX, NOTE_MAX, validateFreeText } from '../../src/lib/forms';
 import { createIdempotencyKeeper, isFinalAttemptStatus } from '../../src/lib/idempotency';
-import { askNotificationsAfterFirstSuccess } from '../../src/lib/notifications';
+import { shouldOfferNotificationsAfterFirstSuccess } from '../../src/lib/notifications';
 import { useApi, useLoggedIn } from '../../src/ui/hooks';
 import { Body, Button, Card, Chip, ErrorBanner, Loading, Row, T, Title, Touchable, font, styles } from '../../src/ui/kit';
 
@@ -87,8 +87,8 @@ export default function Reservasi() {
     if (r.ok || isFinalAttemptStatus(r.status)) await keeper.clear();
     setBusy(false);
     if (!r.ok) return setError(errorMessage(r.code));
-    void askNotificationsAfterFirstSuccess();
     router.replace({ pathname: '/reservasi/[id]', params: { id: r.data.booking_id } });
+    if (await shouldOfferNotificationsAfterFirstSuccess()) router.push({ pathname: '/izin-notifikasi', params: { context: 'reservation' } });
   }
 
   const min = avail?.min_party ?? 1;

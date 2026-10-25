@@ -16,6 +16,8 @@ import { useLoggedIn } from '../../src/ui/hooks';
 import { Body, Card, ErrorBanner, T, Title, Touchable, font } from '../../src/ui/kit';
 import { ModePicker } from '../../src/ui/ModePicker';
 import { ParallaxScreen } from '../../src/ui/ParallaxScreen';
+import { sortBrands, sortModes } from '../../src/lib/onboarding';
+import { usePrefs } from '../../src/state/prefs';
 import { ProductCard } from '../../src/ui/ProductCard';
 import { errorMessage } from '../../src/api/errors';
 
@@ -93,8 +95,11 @@ function PointsCard() {
 export default function Home() {
   const router = useRouter();
   const channels = useChannels();
+  const { prefs } = usePrefs();
+  // Preferensi onboarding (di perangkat): brand & cara pesan favorit tampil lebih dulu.
+  const brands = sortBrands(BRANDS, prefs.favoriteBrands);
   const sections: { brand: BrandInfo; channel: Channel }[] = [];
-  for (const b of BRANDS) {
+  for (const b of brands) {
     const ch = (channels.data ?? []).find((c) => brandOfCompany(c.company_code)?.id === b.id);
     if (ch) sections.push({ brand: b, channel: ch });
   }
@@ -112,7 +117,7 @@ export default function Home() {
         }
       >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }} accessibilityLabel="Brand EFN">
-          {BRANDS.map((b) => (
+          {brands.map((b) => (
             <Touchable key={b.id} label={`Belanja di ${b.name}`} onPress={() => {
               const ch = sections.find((s) => s.brand.id === b.id)?.channel;
               router.push({ pathname: '/(tabs)/belanja', params: ch ? { channel: ch.channel_code } : {} });
@@ -125,7 +130,7 @@ export default function Home() {
         </ScrollView>
         <View style={{ gap: 8 }}>
           <Title level={3}>Mau pesan dengan cara apa?</Title>
-          <ModePicker />
+          <ModePicker modes={sortModes(APP.modes, prefs.favoriteMode)} />
         </View>
         <PointsCard />
         {channels.error && !channels.data ? <ErrorBanner message={errorMessage(channels.error)} onRetry={() => void channels.reload()} /> : null}
