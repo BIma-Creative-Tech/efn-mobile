@@ -4,9 +4,9 @@
  */
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../src/api';
-import { cancelOrder, getOrder, getPickupCode } from '../../src/api/bff';
+import { cancelOrder, getOrder, getPickupCode, simulatePayment } from '../../src/api/bff';
 import { errorMessage } from '../../src/api/errors';
 import { canCancelOrder, hasPickupCode, isUuid, orderStatusLabel, partStatusLabel, pollIntervalMs, type PickupCodeItem } from '../../src/api/types';
 import { brandOfCompany } from '../../src/config/brand';
@@ -14,9 +14,15 @@ import { formatCountdown, formatDateTime, formatRupiah, remainingSeconds } from 
 import { useApi } from '../../src/ui/hooks';
 import { Body, Button, Card, ErrorBanner, Loading, Row, T, Title, font, styles } from '../../src/ui/kit';
 import { QrCode } from '../../src/ui/QrCode';
+import { PaymentPanel, PaymentResult } from '../../src/ui/PaymentPanel';
+import { lineKey } from '../../src/lib/cart';
+import { paymentChoice } from '../../src/state/paymentChoice';
 
 export default function PesananDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const [simBusy, setSimBusy] = useState(false);
+  const [, force] = useState(0);
   const valid = isUuid(id);
   const order = useApi(() => (valid ? getOrder(api, id) : null), [id]);
   const [codes, setCodes] = useState<PickupCodeItem[] | null>(null);
@@ -56,6 +62,15 @@ export default function PesananDetail() {
   if (!o) return <ErrorBanner message={errorMessage(order.error)} onRetry={() => void order.reload()} />;
   const payLeft = remainingSeconds(o.payment?.expires_at ?? o.expires_at, now);
 
+  async function simulate(status: 'paid' | 'expired' | 'failed') {
+    setSimBusy(true);
+    setErr(null);
+    const r = await simulatePayment(api, o!.order_id, status);
+    setSimBusy(false);
+    if (r.ok) order.setData(r.data);
+    else setErr(r.code === 'not_found' ? 'simulation_unavailable' : r.code);
+  }
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View accessibilityLiveRegion="polite">
@@ -84,16 +99,17 @@ export default function PesananDetail() {
       ) : null}
       {codeErr ? <ErrorBanner message={errorMessage(codeErr)} /> : null}
 
-      {o.status === 'awaiting_payment' && o.payment?.qr_string ? (
-        <Card style={{ gap: 10, alignItems: 'center' }}>
-          <Title level={3}>Bayar dengan QRIS</Title>
-          <QrCode value={o.payment.qr_string} label="Kode QRIS pembayaran" />
-          <Body>{formatRupiah(o.amount_payable)}</Body>
-          <Body muted small>
-            Bayar dalam {formatCountdown(payLeft)}
-          </Body>
-        </Card>
-      ) : null}
+      <PaymentPanel
+        order={o}
+        left={payLeft}
+        busy={simBusy}
+        onSimulate={(s) => void simulate(s)}
+        onChangeMethod={(m) => {
+          paymentChoice.set(o.order_id, { method: m });
+          force((x) => x + 1);
+        }}
+      />
+      <PaymentResult status={o.status} onShop={() => router.replace('/(tabs)/belanja')} />
       {o.status === 'awaiting_counter_payment' && o.payment?.counter_code ? (
         <Card style={{ gap: 8, alignItems: 'center' }}>
           <Title level={3}>Bayar di kasir</Title>
@@ -115,10 +131,17 @@ export default function PesananDetail() {
           {p.pickup_slot ? <Body small>Jadwal ambil: {formatDateTime(p.pickup_slot)}</Body> : null}
           {p.ready_at ? <Body small>Siap: {formatDateTime(p.ready_at)}</Body> : null}
           {p.lines.map((l) => (
-            <Row key={`${l.product_id}-${l.reward}`} style={{ justifyContent: 'space-between' }}>
-              <Body style={{ flex: 1 }}>
-                {l.qty}× {l.name}
-              </Body>
+            <Row key={`${lineKey(l.product_id, l.attribute_value_ids)}-${l.reward}`} style={{ justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Body>
+                  {l.qty}× {l.name}
+                </Body>
+                {l.attributes_text ? (
+                  <Body muted small>
+                    {l.attributes_text}
+                  </Body>
+                ) : null}
+              </View>
               <Body>{l.reward ? 'Hadiah' : formatRupiah(l.subtotal_incl)}</Body>
             </Row>
           ))}

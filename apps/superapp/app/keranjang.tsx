@@ -10,7 +10,7 @@ import { getPickupSlots } from '../src/api/bff';
 import { errorMessage } from '../src/api/errors';
 import type { CartGroup, Channel, SlotDay } from '../src/api/types';
 import { brandOfCompany } from '../src/config/brand';
-import { countItems } from '../src/lib/cart';
+import { countItems, lineKey } from '../src/lib/cart';
 import { DEFAULT_TZ, dateKey, dateKeyLabel, formatDateTime, formatSlot, nextDateKeys } from '../src/lib/format';
 import { cartActions, useCart } from '../src/state/cart';
 import { useChannels } from '../src/state/channels';
@@ -98,17 +98,27 @@ export default function Keranjang() {
               {g.pickup_slot ? ` · ${formatDateTime(g.pickup_slot)}` : ''}
             </Body>
             {g.lines.map((l) => {
+              const key = lineKey(l.product_id, l.attribute_value_ids);
               const name = cart.names[l.product_id] ?? `Produk #${l.product_id}`;
+              const opts = cart.options[key] ?? (l.attribute_value_ids?.length ? 'Dengan pilihan (rincian di pembayaran)' : '');
+              const attrs = l.attribute_value_ids ?? [];
               return (
-                <Row key={l.product_id} style={{ justifyContent: 'space-between' }}>
-                  <Body style={{ flex: 1 }}>{name}</Body>
-                  <Touchable label={`Kurangi ${name}`} onPress={() => void cartActions.setQty(g.channel_code, l.product_id, l.qty - 1)} style={{ width: 44, alignItems: 'center' }}>
+                <Row key={key} style={{ justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <Body>{name}</Body>
+                    {opts ? (
+                      <Body muted small>
+                        {opts}
+                      </Body>
+                    ) : null}
+                  </View>
+                  <Touchable label={`Kurangi ${name}`} onPress={() => void cartActions.setQty(g.channel_code, l.product_id, l.qty - 1, attrs)} style={{ width: 44, alignItems: 'center' }}>
                     <Text style={[{ color: T.text, fontSize: 20 }, font.bold]}>−</Text>
                   </Touchable>
                   <Text accessibilityLabel={`Jumlah ${l.qty}`} style={[{ color: T.text, minWidth: 24, textAlign: 'center' }, font.bold]}>
                     {l.qty}
                   </Text>
-                  <Touchable label={`Tambah ${name}`} onPress={() => void cartActions.setQty(g.channel_code, l.product_id, l.qty + 1)} style={{ width: 44, alignItems: 'center' }}>
+                  <Touchable label={`Tambah ${name}`} onPress={() => void cartActions.setQty(g.channel_code, l.product_id, l.qty + 1, attrs)} style={{ width: 44, alignItems: 'center' }}>
                     <Text style={[{ color: T.text, fontSize: 20 }, font.bold]}>+</Text>
                   </Touchable>
                 </Row>

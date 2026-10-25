@@ -20,3 +20,12 @@ export function resolveApiBaseUrl(extra: Record<string, unknown> | undefined | n
 }
 
 export const API_BASE_URL = resolveApiBaseUrl(Constants.expoConfig?.extra as Record<string, unknown> | undefined);
+
+/**
+ * Mockup pembayaran (K25-07): hanya `true` literal dari build (env `EFN_PAYMENT_MOCKUP=true`). Default mati.
+ * Lapis kedua: BFF menolak simulasi di production.
+ */
+export function resolvePaymentMockup(extra: Record<string, unknown> | undefined | null): boolean {
+  return extra?.paymentMockup === true;
+}
+export const PAYMENT_MOCKUP = resolvePaymentMockup(Constants.expoConfig?.extra as Record<string, unknown> | undefined);

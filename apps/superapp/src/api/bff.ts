@@ -92,6 +92,12 @@ export const listOrders = (c: ApiClient, cursor?: string | null) => map(c.reques
 export const getOrder = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}`, { auth: 'required' }), parseOrderDetail);
 export const getPickupCode = (c: ApiClient, id: string) => map(c.request('GET', `/v1/orders/${encodeURIComponent(id)}/pickup-code`, { auth: 'required' }), parsePickupCodes);
 export const cancelOrder = (c: ApiClient, id: string) => c.request('POST', `/v1/orders/${encodeURIComponent(id)}/cancel`, { auth: 'required', body: {} });
+/**
+ * DEV/STAGING SAJA (docs/04 §10.7): simulasi hasil pembayaran provider `mock`. BFF menjawab 404 di production atau bila
+ * provider bukan mock, jadi aman walau terpanggil. App hanya memanggilnya di build mockup (`extra.paymentMockup`).
+ */
+export const simulatePayment = (c: ApiClient, id: string, status: 'paid' | 'expired' | 'failed') =>
+  map(c.request('POST', `/v1/orders/${encodeURIComponent(id)}/simulate-payment`, { auth: 'required', body: { status } }), parseOrderDetail);
 
 // ---- reservasi meja (§15.5) ----
 export const getBookingOutlets = (c: ApiClient) => map(c.request('GET', '/v1/booking/outlets'), parseBookingOutlets);

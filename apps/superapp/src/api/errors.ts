@@ -4,6 +4,7 @@
  */
 
 export const ERROR_MESSAGES: Record<string, string> = {
+  simulation_unavailable: 'Simulasi pembayaran tidak tersedia di server ini (hanya dev/staging dengan provider mock).',
   // auth
   captcha_required: 'Verifikasi keamanan kedaluwarsa. Coba kirim kode lagi.',
   age_confirmation_required: 'Centang pernyataan bahwa Anda berusia minimal 17 tahun, lalu tekan Masuk lagi. Kode yang sama masih bisa dipakai.',

@@ -3,6 +3,8 @@
  * Harga katalog INDIKATIF; tagihan selalu dari quote (Odoo). App tidak pernah menghitung pajak.
  */
 
+import { normalizeAttributeIds, parseAttributes, type ProductAttribute } from '../lib/attributes';
+
 export const CHANNEL_RE = /^[A-Z][A-Z0-9-]{1,15}$/;
 export const OUTLET_RE = /^[A-Z0-9][A-Z0-9-]{1,23}$/;
 export const IMAGE_SHA_RE = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
@@ -116,6 +118,8 @@ export interface Product {
   tax_labels: string[];
   max_qty: number;
   description?: string;
+  /** G22 B-2: modifier F&B (`no_variant`); `[]` untuk ritel. */
+  attributes: ProductAttribute[];
 }
 export function parseProduct(v: unknown): Product | null {
   if (!isObj(v)) return null;
@@ -133,6 +137,7 @@ export function parseProduct(v: unknown): Product | null {
     price_excl: num(v.price_excl) ?? price,
     tax_labels: labels(v.tax_labels),
     max_qty: Math.min(posInt(v.max_qty) ?? 99, 999),
+    attributes: parseAttributes(v.attributes),
   };
   if (typeof v.description === 'string') p.description = v.description.slice(0, 2000);
   return p;
@@ -182,6 +187,8 @@ export function parseSlotDay(v: unknown): SlotDay | null {
 export interface CartLine {
   product_id: number;
   qty: number;
+  /** G22 B-4: PTAV modifier, unik & urut naik, ≤ 10. DIHILANGKAN bila kosong (bentuk baris ritel tidak berubah). */
+  attribute_value_ids?: number[];
 }
 export interface CartGroup {
   channel_code: string;
@@ -206,7 +213,9 @@ export function parseCart(v: unknown): Cart | null {
       if (!isObj(l)) continue;
       const id = posInt(l.product_id);
       const qty = posInt(l.qty);
-      if (id !== null && qty !== null) lines.push({ product_id: id, qty: Math.min(qty, 999) });
+      const attrs = normalizeAttributeIds(l.attribute_value_ids);
+      if (id === null || qty === null || attrs === null) continue;
+      lines.push(attrs.length > 0 ? { product_id: id, qty: Math.min(qty, 999), attribute_value_ids: attrs } : { product_id: id, qty: Math.min(qty, 999) });
     }
     const group: CartGroup = { channel_code: g.channel_code, outlet_code: g.outlet_code, fulfilment: g.fulfilment === 'delivery' ? 'delivery' : 'pickup', lines };
     if (typeof g.pickup_slot === 'string' && !Number.isNaN(Date.parse(g.pickup_slot))) group.pickup_slot = g.pickup_slot;
@@ -223,6 +232,9 @@ export interface QuoteLine {
   subtotal_incl: number;
   available: boolean;
   reward: boolean;
+  /** L-78: baris beratribut membawa id (identitas baris) + ringkasan teks dari Odoo. */
+  attribute_value_ids: number[];
+  attributes_text: string;
 }
 export interface TaxGroup {
   label: string;
@@ -254,7 +266,17 @@ function parseLines(v: unknown): QuoteLine[] {
     const unit = num(l.price_unit_incl);
     const sub = num(l.subtotal_incl);
     if (id === null || qty === null || unit === null || sub === null) continue;
-    out.push({ product_id: id, name: str(l.name, 200) || `Produk #${id}`, qty, price_unit_incl: unit, subtotal_incl: sub, available: l.available !== false, reward: l.reward === true });
+    out.push({
+      product_id: id,
+      name: str(l.name, 200) || `Produk #${id}`,
+      qty,
+      price_unit_incl: unit,
+      subtotal_incl: sub,
+      available: l.available !== false,
+      reward: l.reward === true,
+      attribute_value_ids: normalizeAttributeIds(l.attribute_value_ids) ?? [],
+      attributes_text: str(l.attributes_text, 200) ?? '',
+    });
   }
   return out;
 }

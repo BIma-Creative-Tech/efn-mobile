@@ -6,17 +6,20 @@ import { useSyncExternalStore } from 'react';
 import { api } from '../api';
 import { getCart, putCart } from '../api/bff';
 import type { CartGroup } from '../api/types';
-import { addItem, mergeGroups, setPickupSlot, setQty, type AddInput } from '../lib/cart';
+import { addItem, lineKey, mergeGroups, setPickupSlot, setQty, type AddInput } from '../lib/cart';
 import { session } from './session';
 
 interface State {
   version: number;
   groups: CartGroup[];
+  /** Nama tampilan per produk (tanpa harga). */
   names: Record<number, string>;
+  /** Ringkasan pilihan modifier per baris (kunci `lineKey`), tampilan saja. */
+  options: Record<string, string>;
   synced: boolean;
 }
 
-let state: State = { version: 0, groups: [], names: {}, synced: false };
+let state: State = { version: 0, groups: [], names: {}, options: {}, synced: false };
 const listeners = new Set<() => void>();
 const set = (s: Partial<State>) => {
   state = { ...state, ...s };
@@ -56,15 +59,16 @@ async function push(groups: CartGroup[]): Promise<{ ok: boolean; code?: string }
 }
 
 export const cartActions = {
-  async add(input: AddInput & { name: string }) {
+  async add(input: AddInput & { name: string; optionsText?: string }) {
     const r = addItem(state.groups, input);
     if (!r.ok) return r;
-    set({ names: { ...state.names, [input.product_id]: input.name } });
+    const key = lineKey(input.product_id, input.attribute_value_ids);
+    set({ names: { ...state.names, [input.product_id]: input.name }, ...(input.optionsText ? { options: { ...state.options, [key]: input.optionsText } } : {}) });
     const p = await push(r.groups);
     return { ...r, synced: p.ok, code: p.code };
   },
-  async setQty(channel: string, productId: number, qty: number) {
-    return push(setQty(state.groups, channel, productId, qty));
+  async setQty(channel: string, productId: number, qty: number, attrs: readonly number[] = []) {
+    return push(setQty(state.groups, channel, productId, qty, 99, attrs));
   },
   async setSlot(channel: string, slot: string | null) {
     return push(setPickupSlot(state.groups, channel, slot));

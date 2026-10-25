@@ -37,9 +37,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['expo-splash-screen', { backgroundColor: '#0b5d4b' }],
     ['expo-camera', { cameraPermission: 'Kamera dipakai untuk memindai kode QR di meja gerai.', recordAudioAndroid: false }],
     'expo-notifications',
+    ['expo-image-picker', { photosPermission: 'Galeri dipakai untuk memilih foto bukti transfer.', cameraPermission: 'Kamera dipakai untuk memotret bukti transfer dan memindai QR meja.', microphonePermission: false }],
   ],
   experiments: { typedRoutes: false },
   extra: {
     apiBaseUrl: process.env.EFN_API_BASE_URL ?? 'https://api.efn.local',
+    // K25-07: layar mockup VA/e-wallet/bukti transfer + tombol simulasi. Jangan aktifkan untuk build produksi.
+    paymentMockup: process.env.EFN_PAYMENT_MOCKUP === 'true',
   },
 });
