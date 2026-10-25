@@ -1,0 +1,149 @@
+# APK uji Super-App (dev/staging) dibangun di GitHub Actions dan dipasang sebagai GitHub Release (prerelease).
+# Tujuan: build Android (Gradle + NDK, ±50 menit, RAM besar) tidak lagi di laptop/WSL.
+#
+# Pemicu:
+#   - push tag `superapp-apk-*`            -> release untuk tag itu
+#   - workflow_dispatch (Actions -> Run)   -> release baru `superapp-apk-<tanggal>-<run>` di commit yang dipilih
+# Konfigurasi (Settings -> Secrets and variables -> Actions -> Variables), semuanya opsional:
+#   EFN_APK_API_BASE_URL   https://api.<host>   (default https://api.192-168-3-117.nip.io = BFF dev di laptop/LAN)
+#   EFN_DEV_CA_PEM         sertifikat CA dev PUBLIK (PEM, tanpa kunci) -> plugins/with-dev-ca.js mempercayainya hanya
+#                          untuk host EFN_APK_API_BASE_URL. Kosong = trust store sistem saja (mis. staging ber-sertifikat publik).
+# APK = release JS bundle, ditandatangani debug keystore template React Native (sama di setiap build -> bisa update
+# tanpa uninstall). BUKAN untuk produksi/Play Store.
+name: superapp-apk
+
+on:
+  push:
+    tags: ['superapp-apk-*']
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'BFF https://api.<host> (kosong = variable EFN_APK_API_BASE_URL / default nip.io dev)'
+        required: false
+        default: ''
+      payment_mockup:
+        description: 'Layar mockup VA/e-wallet + tombol simulasi (EFN_PAYMENT_MOCKUP)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: superapp-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write   # gh release create
+    env:
+      APP_DIR: apps/superapp
+      IN_API_BASE_URL: ${{ inputs.api_base_url }}
+      VAR_API_BASE_URL: ${{ vars.EFN_APK_API_BASE_URL }}
+      IN_PAYMENT_MOCKUP: ${{ github.event_name == 'workflow_dispatch' && !inputs.payment_mockup && 'false' || 'true' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Konfigurasi build (validasi URL BFF, CA dev opsional)
+        env:
+          DEV_CA_PEM: ${{ vars.EFN_DEV_CA_PEM }}
+        run: |
+          url="${IN_API_BASE_URL:-${VAR_API_BASE_URL:-https://api.192-168-3-117.nip.io}}"
+          if [[ ! "$url" =~ ^https://[a-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
+            echo "::error::api_base_url harus https://<host>[:port] tanpa path (bukan: $url)"; exit 1
+          fi
+          mock=false; [[ "$IN_PAYMENT_MOCKUP" == true ]] && mock=true
+          { echo "EFN_API_BASE_URL=$url"; echo "EFN_PAYMENT_MOCKUP=$mock"; } >> "$GITHUB_ENV"
+          if [[ -n "$DEV_CA_PEM" ]]; then
+            printf '%s\n' "$DEV_CA_PEM" > "$RUNNER_TEMP/dev-ca.pem"
+            if grep -q "PRIVATE KEY" "$RUNNER_TEMP/dev-ca.pem" || ! openssl x509 -in "$RUNNER_TEMP/dev-ca.pem" -noout 2>/dev/null; then
+              echo "::error::EFN_DEV_CA_PEM harus sertifikat PEM tanpa kunci privat"; exit 1
+            fi
+            echo "EFN_DEV_CA_FILE=$RUNNER_TEMP/dev-ca.pem" >> "$GITHUB_ENV"
+            openssl x509 -in "$RUNNER_TEMP/dev-ca.pem" -noout -subject -enddate
+          fi
+          echo "BFF=$url mockup=$mock dev_ca=$([[ -n "$DEV_CA_PEM" ]] && echo ya || echo tidak)"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/superapp/package-lock.json
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6.4.0
+
+      - name: npm ci + gate (tsc, jest)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          CI=true npx jest
+
+      - name: expo prebuild (android)
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          EXPO_NO_TELEMETRY: '1'
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          if [[ -n "${EFN_DEV_CA_FILE:-}" ]]; then
+            grep -q 'networkSecurityConfig' android/app/src/main/AndroidManifest.xml
+            cat android/app/src/main/res/xml/network_security_config.xml
+          fi
+
+      - name: Gradle assembleRelease (x86_64 emulator + arm64 HP)
+        working-directory: ${{ env.APP_DIR }}/android
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: ./gradlew --no-daemon -PreactNativeArchitectures=x86_64,arm64-v8a assembleRelease
+
+      - name: Verifikasi APK
+        id: apk
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          bt="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$bt/apksigner" verify "$apk"
+          "$bt/aapt2" dump badging "$apk" | grep -E "^package|minSdkVersion|targetSdkVersion|native-code"
+          unzip -p "$apk" assets/app.config | python3 -c "import json,os,sys; e=json.load(sys.stdin)['extra']; print('apiBaseUrl', e['apiBaseUrl'], 'mockup', e['paymentMockup']); assert e['apiBaseUrl'] == os.environ['EFN_API_BASE_URL']"
+          if unzip -l "$apk" | grep -qiE '\.(key|p12|jks)$'; then echo "::error::APK memuat berkas kunci"; exit 1; fi
+          name="EFN-SuperApp-$(date -u +%Y%m%d)-${GITHUB_SHA::7}.apk"
+          mkdir -p "$RUNNER_TEMP/out" && cp "$apk" "$RUNNER_TEMP/out/$name"
+          (cd "$RUNNER_TEMP/out" && sha256sum "$name" > "$name.sha256")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          ls -la "$RUNNER_TEMP/out"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: superapp-apk
+          path: ${{ runner.temp }}/out/
+          retention-days: 14
+
+      - name: GitHub Release (prerelease)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK: ${{ steps.apk.outputs.name }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="superapp-apk-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}"; fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          APK uji Super-App (**dev/staging saja**, bukan produksi).
+
+          - Commit: \`${GITHUB_SHA::7}\` (${GITHUB_REF_NAME})
+          - BFF: \`${EFN_API_BASE_URL}\` · mockup pembayaran: \`${EFN_PAYMENT_MOCKUP}\` · CA dev: \`$([[ -n "${EFN_DEV_CA_FILE:-}" ]] && echo ya || echo tidak)\`
+          - ABI: x86_64 (BlueStacks/emulator) + arm64-v8a (HP) · ditandatangani debug keystore React Native
+          - SHA-256: lihat \`${APK}.sha256\`
+
+          Pasang: seret APK ke BlueStacks (atau *Install APK*). Versi baru bisa dipasang menimpa versi lama.
+          EOF
+          gh release create "$tag" "$RUNNER_TEMP/out/$APK" "$RUNNER_TEMP/out/$APK.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Super-App APK uji ${tag#superapp-apk-}" --notes-file "$RUNNER_TEMP/notes.md"

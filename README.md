@@ -77,6 +77,17 @@ Emulator tidak bisa memakai `api.efn.local` (hosts file laptop). Pakai host `nip
 3. Jangan pakai APK ini di luar uji dev: debug-signed, mempercayai CA dev, dan menunjuk IP LAN laptop.
 4. Windows Firewall harus mengizinkan port 443 masuk dari jaringan lokal. IP laptop berubah → sertifikat & APK dibuat ulang.
 
+### APK dari GitHub Actions (tanpa build lokal)
+
+Workflow `.github/workflows/superapp-apk.yml` membangun APK di runner GitHub dan memasangnya sebagai **prerelease**
+di tab *Releases*. Laptop tidak perlu Gradle/NDK/Android SDK (build lokal ±50 menit dan memakan RAM WSL besar).
+- Jalankan: *Actions → superapp-apk → Run workflow* (pilih branch, URL BFF, mockup), atau push tag `superapp-apk-*`.
+- Variables repo (Settings → Secrets and variables → Actions → Variables): `EFN_APK_API_BASE_URL` (default
+  `https://api.192-168-3-117.nip.io`) dan `EFN_DEV_CA_PEM` (sertifikat CA dev **publik**, tanpa kunci). Bukan secret:
+  keduanya tertanam di APK.
+- Gate sebelum build: `tsc` + `jest`. Setelah build: `apksigner verify`, URL BFF di APK = yang diminta, tanpa berkas kunci.
+- Artefak juga diunggah 14 hari. Repo privat: menit Actions dihitung kuota organisasi (±50–60 menit per build).
+
 ## Aturan
 
 - Jangan menambah paket bersama antar app; perbedaan antar brand cukup di `src/config/brand.ts` app itu.
