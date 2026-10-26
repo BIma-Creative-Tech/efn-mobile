@@ -2,9 +2,10 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { discoverApiBaseUrl } from '../src/api';
 import { cartActions } from '../src/state/cart';
 import { session } from '../src/state/session';
 import { tableSession } from '../src/state/tableSession';
@@ -20,7 +21,12 @@ export default function RootLayout() {
   const prefs = usePrefs();
   const router = useRouter();
   const segments = useSegments();
-  const ready = (loaded || !!fontError) && prefs.loaded; // font gagal -> font sistem, app tetap jalan
+  // Build uji: alamat BFF (tunnel) dibaca dulu sebelum layar pertama memanggil API.
+  const [apiReady, setApiReady] = useState(false);
+  useEffect(() => {
+    void discoverApiBaseUrl().finally(() => setApiReady(true));
+  }, []);
+  const ready = (loaded || !!fontError) && prefs.loaded && apiReady; // font gagal -> font sistem, app tetap jalan
 
   // Onboarding sekali (bisa dilewati). Deep link ke layar lain (mis. QR meja) tidak dibelokkan.
   useEffect(() => {
@@ -35,6 +41,7 @@ export default function RootLayout() {
   }, [ready]);
 
   useEffect(() => {
+    if (!apiReady) return;
     void cartActions.reload();
     return session.subscribe(({ loggedIn }) => {
       if (!loggedIn) {
@@ -42,7 +49,7 @@ export default function RootLayout() {
         tableSession.clear();
       }
     });
-  }, []);
+  }, [apiReady]);
 
   if (!ready) return null;
   return (

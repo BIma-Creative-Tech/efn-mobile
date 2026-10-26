@@ -21,6 +21,10 @@ on:
         description: 'BFF https://api.<host> (kosong = variable EFN_APK_API_BASE_URL / default nip.io dev)'
         required: false
         default: ''
+      api_discovery_url:
+        description: 'URL JSON {"api_base_url":"https://<x>.trycloudflare.com"} dibaca APK saat start (alamat tunnel dinamis). Kosong = mati'
+        required: false
+        default: ''
       payment_mockup:
         description: 'Layar mockup VA/e-wallet + tombol simulasi (EFN_PAYMENT_MOCKUP)'
         type: boolean
@@ -43,6 +47,7 @@ jobs:
       APP_DIR: apps/superapp
       IN_API_BASE_URL: ${{ inputs.api_base_url }}
       VAR_API_BASE_URL: ${{ vars.EFN_APK_API_BASE_URL }}
+      IN_DISCOVERY_URL: ${{ inputs.api_discovery_url }}
       IN_PAYMENT_MOCKUP: ${{ github.event_name == 'workflow_dispatch' && !inputs.payment_mockup && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
@@ -56,6 +61,12 @@ jobs:
           url="${IN_API_BASE_URL:-${VAR_API_BASE_URL:-https://api.192-168-3-117.nip.io}}"
           if [[ ! "$url" =~ ^https://[a-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
             echo "::error::api_base_url harus https://<host>[:port] tanpa path (bukan: $url)"; exit 1
+          fi
+          if [[ -n "${IN_DISCOVERY_URL:-}" ]]; then
+            if [[ ! "$IN_DISCOVERY_URL" =~ ^https://[a-z0-9.-]+/[A-Za-z0-9._~/-]{1,200}$ ]]; then
+              echo "::error::api_discovery_url harus https://<host>/<path> tanpa query"; exit 1
+            fi
+            echo "EFN_API_DISCOVERY_URL=$IN_DISCOVERY_URL" >> "$GITHUB_ENV"
           fi
           mock=false; [[ "$IN_PAYMENT_MOCKUP" == true ]] && mock=true
           { echo "EFN_API_BASE_URL=$url"; echo "EFN_PAYMENT_MOCKUP=$mock"; echo "EFN_VERSION_CODE=$((GITHUB_RUN_NUMBER + 10))"; } >> "$GITHUB_ENV"

@@ -46,6 +46,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   experiments: { typedRoutes: false },
   extra: {
     apiBaseUrl: process.env.EFN_API_BASE_URL ?? 'https://api.efn.local',
+    // BUILD UJI SAJA: file JSON berisi alamat tunnel terkini (src/config/env.ts). Kosong = mati.
+    apiDiscoveryUrl: process.env.EFN_API_DISCOVERY_URL ?? '',
     // K25-07: layar mockup VA/e-wallet/bukti transfer + tombol simulasi. Jangan aktifkan untuk build produksi.
     paymentMockup: process.env.EFN_PAYMENT_MOCKUP === 'true',
   },
