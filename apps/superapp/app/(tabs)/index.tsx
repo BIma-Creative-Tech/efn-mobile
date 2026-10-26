@@ -27,6 +27,7 @@ import { ModePicker } from '../../src/ui/ModePicker';
 import { useReduceMotion } from '../../src/ui/motion';
 import { CartButton, useScrollReset, useTabTop } from '../../src/ui/nav';
 import { ProductCard } from '../../src/ui/ProductCard';
+import { isSoldOut, useStock } from '../../src/ui/useStock';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const EBN_LOGO = require('../../assets/brands/efn.png');
@@ -44,6 +45,7 @@ function BrandSection({ brand, channel, index }: { brand: BrandInfo; channel: Ch
   }, [channel.channel_code]);
   const fnb = isFnbChannel(channel);
   const outlet = channel.outlets.find((o) => o.pickup_enabled);
+  const stock = useStock(channel.channel_code, outlet?.outlet_code, items?.map((p) => p.product_id) ?? []);
   const open = () => router.push({ pathname: '/(tabs)/belanja', params: { channel: channel.channel_code } });
   return (
     <Reveal index={index} style={{ gap: 12 }}>
@@ -82,6 +84,7 @@ function BrandSection({ brand, channel, index }: { brand: BrandInfo; channel: Ch
                   imageSha={p.image_sha}
                   price={pd.amount}
                   note={pd.note}
+                  soldOut={isSoldOut(stock, p.product_id)}
                   onPress={() => router.push({ pathname: '/produk/[id]', params: { id: String(p.product_id), channel: channel.channel_code, outlet: outlet?.outlet_code ?? '' } })}
                 />
               );

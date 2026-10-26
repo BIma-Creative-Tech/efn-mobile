@@ -20,6 +20,7 @@ import {
   parseProductPage,
   parseQuote,
   parseReservation,
+  parseStock,
   parseReservationList,
   parseSlotDay,
   parseTransferProofResponse,
@@ -85,6 +86,9 @@ export const getProducts = (c: ApiClient, p: { channel: string; category?: numbe
     parseProductPage,
   );
 export const getProduct = (c: ApiClient, channel: string, id: number) => map(c.request('GET', `/v1/catalog/products/${id}${q({ channel })}`), parseProduct);
+/** Status stok gerai untuk ≤ 50 produk; id di luar katalog kanal → 404 (SEC-96), jadi kirim hanya id katalog. */
+export const getStock = (c: ApiClient, channel: string, outlet: string, ids: number[]) =>
+  map(c.request('GET', `/v1/catalog/stock${q({ channel, outlet, ids: [...new Set(ids)].slice(0, 50).join(',') })}`), parseStock);
 export const getPickupSlots = (c: ApiClient, channel: string, outlet: string, date: string) =>
   map(c.request('GET', `/v1/catalog/slots${q({ channel, outlet, date })}`), parseSlotDay);
 

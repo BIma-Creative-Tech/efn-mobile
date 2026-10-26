@@ -12,18 +12,22 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import { api } from '../../src/api';
-import { getProduct, imageUrl } from '../../src/api/bff';
+import { getProduct, getStock, imageUrl } from '../../src/api/bff';
 import { errorMessage } from '../../src/api/errors';
 import { CHANNEL_RE, OUTLET_RE, priceDisplay } from '../../src/api/types';
 import { brandOfCompany, ion, mci } from '../../src/config/brand';
 import { EMPTY_SELECTION, describeSelection, extraExcl, selectedIds, validateSelection, type Selection } from '../../src/lib/attributes';
 import { formatRupiah } from '../../src/lib/format';
-import { cartActions } from '../../src/state/cart';
+import { countItems } from '../../src/lib/cart';
+import { cartActions, useCart } from '../../src/state/cart';
 import { isFnbChannel, useChannels } from '../../src/state/channels';
+import { AddedSheet } from '../../src/ui/AddedSheet';
 import { AttributePicker } from '../../src/ui/AttributePicker';
-import { useApi } from '../../src/ui/hooks';
+import { useApi, useLoggedIn } from '../../src/ui/hooks';
 import { BrandLogo, Button, ErrorBanner, Icon, InfoBanner, Loading, RADIUS, Reveal, Skeleton, Stepper, T, Title, font, gradient, shadow, styles } from '../../src/ui/kit';
 import { useReduceMotion } from '../../src/ui/motion';
+
+const STOCK_OUT_MSG = 'Stok habis di gerai ini. Pilih gerai lain atau produk lain.';
 
 export default function ProdukDetail() {
   const router = useRouter();
@@ -44,6 +48,12 @@ export default function ProdukDetail() {
   const [added, setAdded] = useState(0);
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [missing, setMissing] = useState<number[]>([]);
+  const [sheet, setSheet] = useState<{ qty: number; subtotal: number; note: string | null } | null>(null);
+  const cart = useCart();
+  const loggedIn = useLoggedIn();
+  // Stok gerai (§10.3.2): 'out' = tombol Tambah mati. Gagal/tidak diketahui = tidak diblokir (server tetap memvalidasi).
+  const stock = useApi(() => (channelCode && outletCode && Number.isSafeInteger(id) && id > 0 ? getStock(api, channelCode, outletCode, [id]) : null), [channelCode, outletCode, id]);
+  const soldOut = stock.data?.[id] === 'out';
 
   if (!channelCode)
     return (
@@ -79,6 +89,12 @@ export default function ProdukDetail() {
 
   async function add() {
     if (!outletCode || !channelCode) return setErr('Pilih gerai pengambilan terlebih dulu di halaman katalog.');
+    // Cek ulang stok tepat sebelum menambah (status di layar bisa sudah 30 detik).
+    const fresh = await getStock(api, channelCode, outletCode, [item.product_id]);
+    if (fresh.ok && fresh.data[item.product_id] === 'out') {
+      void stock.reload();
+      return setErr(STOCK_OUT_MSG);
+    }
     const check = validateSelection(attributes, selection);
     if (!check.ok) {
       setMissing(check.reason === 'missing_required' ? check.missing : []);
@@ -101,7 +117,20 @@ export default function ProdukDetail() {
     if (!r.ok) return setErr(r.reason === 'too_many_lines' ? 'Keranjang penuh (maks. 50 jenis barang).' : errorMessage('invalid_request'));
     if ('code' in r && r.code) setErr(errorMessage(r.code));
     setAdded((n) => n + 1);
-    setMsg(r.outletChanged ? `Ditambahkan. Gerai pengambilan diganti ke ${outletName ?? outletCode}.` : 'Ditambahkan ke keranjang.');
+    setMsg(null);
+    setSheet({ qty, subtotal: unit * qty, note: r.outletChanged ? `Gerai pengambilan diganti ke ${outletName ?? outletCode}.` : null });
+  }
+
+  function checkout() {
+    setSheet(null);
+    if (!loggedIn) router.push({ pathname: '/masuk', params: { next: '/checkout' } });
+    else router.push('/checkout');
+  }
+
+  function continueShopping() {
+    setSheet(null);
+    setQty(1);
+    if (router.canGoBack()) router.back();
   }
 
   return (
@@ -171,6 +200,7 @@ export default function ProdukDetail() {
             />
           </Reveal>
 
+          {soldOut ? <ErrorBanner message={`${STOCK_OUT_MSG}${outletName ? ` (${outletName})` : ''}`} /> : null}
           <ErrorBanner message={err} />
           <InfoBanner message={msg} icon={ion('bag-check')} />
           {msg ? <Button variant="secondary" icon={ion('bag-handle-outline')} title="Lihat keranjang" onPress={() => router.push('/keranjang')} /> : null}
@@ -184,13 +214,27 @@ export default function ProdukDetail() {
           shadow.lg,
         ]}
       >
-        <Stepper value={qty} onChange={setQty} max={item.max_qty} />
+        {!soldOut ? <Stepper value={qty} onChange={setQty} max={item.max_qty} /> : null}
         <View style={{ flex: 1 }}>
           <Animated.View key={added} entering={reduce || !added ? undefined : ZoomIn.springify().damping(10)}>
-            <Button title={`Tambah · ${formatRupiah(unit * qty)}`} icon={ion('bag-add')} busy={busy} onPress={() => void add()} />
+            {soldOut ? (
+              <Button title="Stok habis" icon={ion('close-circle-outline')} disabled onPress={() => undefined} />
+            ) : (
+              <Button title={`Tambah · ${formatRupiah(unit * qty)}`} icon={ion('bag-add')} busy={busy} onPress={() => void add()} />
+            )}
           </Animated.View>
         </View>
       </View>
+      <AddedSheet
+        visible={sheet !== null}
+        name={item.name}
+        qty={sheet?.qty ?? qty}
+        subtotal={sheet?.subtotal ?? 0}
+        cartCount={countItems(cart.groups)}
+        note={sheet?.note}
+        onCheckout={checkout}
+        onContinue={continueShopping}
+      />
     </View>
   );
 }

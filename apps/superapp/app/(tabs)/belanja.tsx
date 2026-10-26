@@ -16,6 +16,7 @@ import { CartBar } from '../../src/ui/CartBar';
 import { BrandLogo, Chip, EmptyState, ErrorBanner, Eyebrow, Icon, InfoBanner, Loading, RADIUS, T, Touchable, font, gradient, shadow, styles } from '../../src/ui/kit';
 import { useScrollReset, useTabTop } from '../../src/ui/nav';
 import { ProductCard } from '../../src/ui/ProductCard';
+import { isSoldOut, useStock } from '../../src/ui/useStock';
 
 export default function Belanja() {
   const router = useRouter();
@@ -35,6 +36,8 @@ export default function Belanja() {
   const preorder = params.mode === 'preorder';
   const listRef = useRef<FlatList<Product>>(null);
   const searchRef = useRef<TextInputInstance>(null);
+  const productIds = useMemo(() => items.map((i) => i.product_id), [items]);
+  const stock = useStock(channelCode, outletCode, productIds);
 
   useEffect(() => {
     if (!list.length) return;
@@ -229,6 +232,7 @@ export default function Belanja() {
                 imageSha={item.image_sha}
                 price={pd.amount}
                 note={pd.note}
+                soldOut={isSoldOut(stock, item.product_id)}
                 onPress={() => router.push({ pathname: '/produk/[id]', params: { id: String(item.product_id), channel: channel?.channel_code ?? '', outlet: outletCode ?? '' } })}
               />
             </View>

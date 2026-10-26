@@ -23,6 +23,7 @@ export function ProductCard({
   index = 0,
   width = 164,
   unavailable,
+  soldOut,
   brand,
 }: {
   name: string;
@@ -33,16 +34,19 @@ export function ProductCard({
   index?: number;
   width?: number | '100%';
   unavailable?: boolean;
+  /** Stok gerai habis: kartu tetap bisa dibuka (lihat detail), tetapi berlabel Habis tanpa tombol tambah. */
+  soldOut?: boolean;
   brand?: BrandInfo | null;
 }) {
+  const habis = !!unavailable || !!soldOut;
   const reduce = useReduceMotion();
   const uri = imageUrl(api.baseUrl, imageSha, 512);
   const accent = brand?.color ?? T.action;
   return (
     <Animated.View entering={reduce ? undefined : FadeInDown.delay(Math.min(index, 8) * 50).springify().damping(18).stiffness(150)} style={{ width }}>
-      <Touchable label={`${name}, ${formatRupiah(price)}${unavailable ? ', tidak tersedia' : ''}`} onPress={onPress} disabled={unavailable} pressScale={0.96}>
+      <Touchable label={`${name}, ${formatRupiah(price)}${habis ? ', stok habis' : ''}`} onPress={onPress} disabled={unavailable} pressScale={0.96}>
         <View style={[{ backgroundColor: T.card, borderRadius: RADIUS.lg, overflow: 'hidden', borderWidth: 1, borderColor: '#ece6da' }, shadow.sm]}>
-          <View style={{ backgroundColor: '#ffffff', aspectRatio: 1, padding: 10 }}>
+          <View style={{ backgroundColor: '#ffffff', aspectRatio: 1, padding: 10, opacity: habis ? 0.55 : 1 }}>
             {uri ? (
               <Image source={{ uri }} style={{ flex: 1 }} contentFit="contain" transition={reduce ? 0 : 250} accessibilityIgnoresInvertColors accessible={false} />
             ) : (
@@ -50,7 +54,7 @@ export function ProductCard({
                 <Ionicons name="image-outline" size={28} color={T.muted} />
               </View>
             )}
-            {unavailable ? (
+            {habis ? (
               <View style={{ position: 'absolute', left: 10, top: 10, backgroundColor: 'rgba(19,32,28,0.82)', borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 4 }}>
                 <Text style={[{ color: '#ffffff', fontSize: 11 }, font.bold]}>Habis</Text>
               </View>
@@ -69,7 +73,7 @@ export function ProductCard({
                   </Text>
                 ) : null}
               </View>
-              {!unavailable ? (
+              {!habis ? (
                 <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: accent, alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="add" size={19} color={brand?.onColor ?? T.onAction} />
                 </View>

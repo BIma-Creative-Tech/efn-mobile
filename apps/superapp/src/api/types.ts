@@ -112,6 +112,19 @@ export function parseCategories(v: unknown): Category[] | null {
   return out.sort((a, b) => a.sequence - b.sequence || a.name.localeCompare(b.name));
 }
 
+/** docs/04 §10.3.2: status stok per gerai (`GET /v1/catalog/stock`, ≤ 50 id, cache BFF 30 s). */
+export type StockStatus = 'in_stock' | 'low' | 'out';
+export function parseStock(v: unknown): Record<number, StockStatus> | null {
+  if (!isObj(v) || !Array.isArray(v.items)) return null;
+  const out: Record<number, StockStatus> = {};
+  for (const x of v.items.slice(0, 50)) {
+    if (!isObj(x)) continue;
+    const id = posInt(x.product_id);
+    if (id !== null && (x.status === 'in_stock' || x.status === 'low' || x.status === 'out')) out[id] = x.status;
+  }
+  return out;
+}
+
 export interface Product {
   product_id: number;
   name: string;
