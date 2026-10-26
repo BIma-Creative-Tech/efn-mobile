@@ -159,10 +159,16 @@ export function parseProductPage(v: unknown): ProductPage | null {
   };
 }
 
-/** Harga tampil: ritel termasuk pajak; F&B sebelum pajak + label (docs/04 §14.B B-5). */
+/**
+ * Harga tampil pesanan ONLINE (ambil di gerai / pre-order). Ritel: harga termasuk PPN + label. F&B: PB1 dan service
+ * charge hanya untuk makan di tempat (Odoo: fiscal position "F&B Non-Dine-in", PB1 0 %, tanpa SC, W-14b), jadi harga
+ * online F&B = harga sebelum pajak dine-in TANPA catatan "belum termasuk PB1". Total final tetap dari quote Odoo.
+ * Catatan pajak dine-in (QR meja) ada di layar /meja (`price_note` dari BFF), bukan di sini.
+ */
 export function priceDisplay(p: Pick<Product, 'price_incl' | 'price_excl' | 'tax_labels'>, fnb: boolean): { amount: number; note: string } {
-  const l = p.tax_labels.join(', ');
-  return fnb ? { amount: p.price_excl, note: `belum termasuk ${l || 'pajak'}` } : { amount: p.price_incl, note: l ? `termasuk ${l}` : '' };
+  if (fnb) return { amount: p.price_excl, note: '' };
+  const l = p.tax_labels.filter((t) => !/^PB1\b/i.test(t)).join(', ');
+  return { amount: p.price_incl, note: l ? `termasuk ${l}` : '' };
 }
 
 // ---------- slot pre-order (§15.4/§15.5) ----------
@@ -245,6 +251,13 @@ export interface TaxGroup {
   label: string;
   base: number;
   amount: number;
+}
+/**
+ * Baris pajak yang ditampilkan ke pelanggan: semua dari Odoo, kecuali yang bernilai 0 (mis. "PB1 Non-Dine-in 0%"
+ * pada pesanan online F&B; PB1 hanya berlaku untuk makan di tempat). App tetap tidak menghitung pajak.
+ */
+export function visibleTaxGroups(t: readonly TaxGroup[]): TaxGroup[] {
+  return t.filter((x) => x.amount !== 0);
 }
 export interface QuoteGroup {
   channel_code: string;

@@ -1,15 +1,17 @@
 /**
- * Masuk dengan OTP SMS (docs/04 §3.2, §8.1; konsep §5). Hanya diminta saat perlu (checkout/reservasi/akun).
+ * Masuk dengan OTP (docs/04 §3.2, §8.1; konsep §5). Hanya diminta saat perlu (checkout/reservasi/akun).
  * Langkah 1: nomor HP → ALTCHA PoW di perangkat → kirim kode. Langkah 2: kode 6 digit (autofill SMS), tujuan
  * disamarkan + "Ubah nomor", kirim ulang sekunder dengan hitung mundur, galat dibedakan. Nomor HP TIDAK di-log.
  */
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { FadeInRight } from 'react-native-reanimated';
 import { api } from '../src/api';
 import { getChallenge, requestOtp, verifyOtp } from '../src/api/bff';
 import { errorMessage } from '../src/api/errors';
-import { APP } from '../src/config/brand';
+import { CORE_BRANDS, ion } from '../src/config/brand';
 import { encodeAltchaPayload, solveAltcha } from '../src/lib/altcha';
 import { formatCountdown } from '../src/lib/format';
 import { otpRequestErrorMessage, otpVerifyErrorMessage } from '../src/lib/forms';
@@ -17,12 +19,14 @@ import { maskPhoneDisplay, normalizeIndonesianPhone } from '../src/lib/phone';
 import { cartActions } from '../src/state/cart';
 import { session } from '../src/state/session';
 import { safeNext } from '../src/ui/hooks';
-import { Body, Button, ErrorBanner, InfoBanner, Row, T, Title, Touchable, font, styles } from '../src/ui/kit';
+import { BrandLogo, Button, ErrorBanner, InfoBanner, RADIUS, T, Title, Touchable, font, gradient, shadow, styles } from '../src/ui/kit';
+import { useReduceMotion } from '../src/ui/motion';
 
 const RESEND_SECONDS = 60;
 
 export default function Masuk() {
   const router = useRouter();
+  const reduce = useReduceMotion();
   const params = useLocalSearchParams<{ next?: string }>();
   const next = safeNext(params.next ?? 'back');
   const [step, setStep] = useState<'phone' | 'code'>('phone');
@@ -67,7 +71,7 @@ export default function Masuk() {
     setStep('code');
     setCode('');
     setResendIn(RESEND_SECONDS);
-    setInfo(`Kode dikirim lewat SMS ke ${maskPhoneDisplay(ref)}.`);
+    setInfo(`Kode dikirim ke ${maskPhoneDisplay(ref)}.`);
   }
 
   async function onSubmitPhone() {
@@ -79,7 +83,7 @@ export default function Masuk() {
 
   async function onVerify() {
     if (!challengeId) return;
-    if (!/^\d{6}$/.test(code)) return setError('Masukkan 6 digit kode dari SMS.');
+    if (!/^\d{6}$/.test(code)) return setError('Masukkan 6 digit kode verifikasi.');
     if (!age) return setError(errorMessage('age_confirmation_required'));
     setError(null);
     setBusy('verify');
@@ -95,51 +99,56 @@ export default function Masuk() {
     else router.replace(next as never);
   }
 
+  const enter = reduce ? undefined : FadeInRight.springify().damping(18);
+
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Title>{step === 'phone' ? `Masuk ke ${APP.displayName}` : 'Masukkan kode'}</Title>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: 4 }]} keyboardShouldPersistTaps="handled">
+        <View style={[{ borderRadius: RADIUS.xl, padding: 20, gap: 14, overflow: 'hidden' }, gradient('#062e2a', '#0b4a40', 150), shadow.md]}>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -40, top: -40, width: 150, height: 150, borderRadius: 75, borderWidth: 24, borderColor: 'rgba(223,180,34,0.16)' }} />
+          <View style={{ width: 52, height: 52, borderRadius: 18, backgroundColor: 'rgba(223,180,34,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name={step === 'phone' ? 'phone-portrait-outline' : 'shield-checkmark-outline'} size={26} color={T.accent} />
+          </View>
+          <Title color="#ffffff">{step === 'phone' ? 'Masuk atau daftar' : 'Masukkan kode'}</Title>
+          <Text style={[{ color: 'rgba(255,255,255,0.85)', fontSize: 14, lineHeight: 20 }, font.body]}>
+            {step === 'phone' ? 'Satu akun untuk semua brand. Kami kirim kode verifikasi ke nomor HP Anda.' : `Kode 6 digit dikirim ke ${memberRef ? maskPhoneDisplay(memberRef) : 'nomor Anda'}.`}
+          </Text>
+          {step === 'phone' ? (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {CORE_BRANDS.map((b) => (
+                <BrandLogo key={b.id} brand={b} size={36} />
+              ))}
+            </View>
+          ) : null}
+        </View>
+
         {step === 'phone' ? (
-          <>
-            <Body muted>Satu akun untuk semua brand EFN. Kami kirim kode verifikasi lewat SMS.</Body>
-            <TextInput
-              style={styles.input}
-              value={phoneRaw}
-              onChangeText={setPhoneRaw}
-              placeholder="0812 3456 7890"
-              placeholderTextColor={T.muted}
-              keyboardType="phone-pad"
-              textContentType="telephoneNumber"
-              autoComplete="tel"
-              accessibilityLabel="Nomor HP"
-              maxLength={20}
-              onSubmitEditing={() => void onSubmitPhone()}
-            />
+          <Animated.View key="phone" entering={enter} style={{ gap: 14 }}>
+            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.card, borderRadius: RADIUS.md, borderWidth: 1, borderColor: T.border, paddingHorizontal: 14 }, shadow.sm]}>
+              <Text style={[{ color: T.text, fontSize: 16 }, font.bold]}>🇮🇩</Text>
+              <TextInput
+                style={[{ flex: 1, minHeight: 54, color: T.text, fontSize: 17, letterSpacing: 0.5 }, font.body]}
+                value={phoneRaw}
+                onChangeText={setPhoneRaw}
+                placeholder="0812 3456 7890"
+                placeholderTextColor={T.muted}
+                keyboardType="phone-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel"
+                accessibilityLabel="Nomor HP"
+                maxLength={20}
+                onSubmitEditing={() => void onSubmitPhone()}
+              />
+            </View>
             <ErrorBanner message={error} />
-            <Button title={busy === 'pow' ? 'Memverifikasi perangkat…' : 'Kirim kode'} busy={busy !== null} onPress={() => void onSubmitPhone()} />
-            {busy === 'pow' ? <Body muted small>Pemeriksaan keamanan singkat berjalan di perangkat Anda.</Body> : null}
-          </>
+            <Button title={busy === 'pow' ? 'Memverifikasi perangkat…' : 'Kirim kode'} trailing={ion('arrow-forward')} busy={busy !== null} onPress={() => void onSubmitPhone()} />
+            {busy === 'pow' ? <Text style={[{ color: T.muted, fontSize: 12, textAlign: 'center' }, font.body]}>Pemeriksaan keamanan singkat berjalan di perangkat Anda.</Text> : null}
+          </Animated.View>
         ) : (
-          <>
-            <InfoBanner message={info} />
-            <Row style={{ justifyContent: 'space-between' }}>
-              <Body>{memberRef ? maskPhoneDisplay(memberRef) : ''}</Body>
-              <Touchable
-                label="Ubah nomor HP"
-                onPress={() => {
-                  setStep('phone');
-                  setChallengeId(null);
-                  setCode('');
-                  setError(null);
-                  setInfo(null);
-                }}
-                style={{ paddingHorizontal: 8 }}
-              >
-                <Text style={[{ color: T.action }, font.bold]}>Ubah nomor</Text>
-              </Touchable>
-            </Row>
+          <Animated.View key="code" entering={enter} style={{ gap: 14 }}>
+            <InfoBanner message={info} icon={ion('chatbubble-ellipses-outline')} />
             <TextInput
-              style={[styles.input, { fontSize: 24, letterSpacing: 8, textAlign: 'center' }]}
+              style={[styles.input, { fontSize: 28, letterSpacing: 12, textAlign: 'center', minHeight: 64 }, font.bold]}
               value={code}
               onChangeText={(v) => setCode(v.replace(/\D/g, '').slice(0, 6))}
               keyboardType="number-pad"
@@ -150,23 +159,38 @@ export default function Masuk() {
               autoFocus
             />
             <Touchable label="Saya berusia minimal 17 tahun" role="checkbox" selected={age} onPress={() => setAge((v) => !v)}>
-              <Row>
-                <View style={{ width: 24, height: 24, borderRadius: 4, borderWidth: 2, borderColor: age ? T.action : T.border, backgroundColor: age ? T.action : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {age ? <Text style={{ color: T.onAction, fontWeight: '700' }}>✓</Text> : null}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: age ? T.action : T.border, backgroundColor: age ? T.action : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {age ? <Ionicons name="checkmark" size={17} color={T.onAction} /> : null}
                 </View>
-                <Body style={{ flex: 1 }}>Saya berusia minimal 17 tahun dan menyetujui syarat & kebijakan privasi.</Body>
-              </Row>
+                <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>Saya berusia minimal 17 tahun dan menyetujui syarat & kebijakan privasi.</Text>
+              </View>
             </Touchable>
             <ErrorBanner message={error} />
-            <Button title="Masuk" busy={busy === 'verify'} disabled={busy !== null} onPress={() => void onVerify()} />
-            <Button
-              variant="secondary"
-              title={resendIn > 0 ? `Kirim ulang dalam ${formatCountdown(resendIn)}` : 'Kirim ulang kode'}
-              disabled={resendIn > 0 || busy !== null}
-              busy={busy === 'pow' || busy === 'send'}
-              onPress={() => memberRef && void sendCode(memberRef)}
-            />
-          </>
+            <Button title="Masuk" icon={ion('log-in-outline')} busy={busy === 'verify'} disabled={busy !== null} onPress={() => void onVerify()} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button
+                style={{ flex: 1 }}
+                variant="secondary"
+                title="Ubah nomor"
+                onPress={() => {
+                  setStep('phone');
+                  setChallengeId(null);
+                  setCode('');
+                  setError(null);
+                  setInfo(null);
+                }}
+              />
+              <Button
+                style={{ flex: 1 }}
+                variant="secondary"
+                title={resendIn > 0 ? `Ulang ${formatCountdown(resendIn)}` : 'Kirim ulang'}
+                disabled={resendIn > 0 || busy !== null}
+                busy={busy === 'pow' || busy === 'send'}
+                onPress={() => memberRef && void sendCode(memberRef)}
+              />
+            </View>
+          </Animated.View>
         )}
       </ScrollView>
     </KeyboardAvoidingView>

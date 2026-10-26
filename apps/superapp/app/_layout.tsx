@@ -10,7 +10,8 @@ import { session } from '../src/state/session';
 import { tableSession } from '../src/state/tableSession';
 import { usePrefs } from '../src/state/prefs';
 import { FONT_MAP } from '../src/ui/fonts';
-import { T, font } from '../src/ui/kit';
+import { T } from '../src/ui/kit';
+import { StackHeader } from '../src/ui/nav';
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -47,21 +48,21 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style={T.scheme === 'dark' ? 'light' : 'dark'} />
+        <StatusBar style="dark" />
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: T.scheme === 'dark' ? T.bg : T.card },
-            headerTintColor: T.text,
-            headerTitleStyle: { ...font.bold, color: T.text },
+            // Header kustom: tombol kembali SELALU ada (tanpa riwayat → Beranda), judul tengah, tombol keranjang.
+            header: (p) => <StackHeader options={p.options} navigation={p.navigation} route={p.route} />,
             contentStyle: { backgroundColor: T.bg },
-            headerBackButtonDisplayMode: 'minimal',
+            animation: 'ios_from_right',
+            animationDuration: 280,
           }}
         >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-          <Stack.Screen name="izin-notifikasi" options={{ title: 'Notifikasi', presentation: 'modal' }} />
-          <Stack.Screen name="masuk" options={{ title: 'Masuk', presentation: 'modal' }} />
-          <Stack.Screen name="produk/[id]" options={{ title: 'Produk' }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'fade' }} />
+          <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
+          <Stack.Screen name="izin-notifikasi" options={{ title: 'Notifikasi', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="masuk" options={{ title: 'Masuk', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="produk/[id]" options={{ title: 'Detail produk' }} />
           <Stack.Screen name="keranjang" options={{ title: 'Keranjang' }} />
           <Stack.Screen name="checkout" options={{ title: 'Pembayaran' }} />
           <Stack.Screen name="pesanan/[id]" options={{ title: 'Detail pesanan' }} />

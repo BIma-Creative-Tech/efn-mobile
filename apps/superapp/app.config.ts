@@ -11,7 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'EFN',
   slug: 'efn-superapp',
   scheme: 'efnsuperapp',
-  version: '0.1.0',
+  version: '0.2.0',
   orientation: 'portrait',
   userInterfaceStyle: 'light',
   backgroundColor: '#f3f6f5',

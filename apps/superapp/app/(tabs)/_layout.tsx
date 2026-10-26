@@ -1,31 +1,24 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router/js-tabs';
 import { APP } from '../../src/config/brand';
-import { T, font } from '../../src/ui/kit';
-
-type IconName = keyof typeof Ionicons.glyphMap;
-const icon = (name: IconName) => ({ color, size }: { color: unknown; size: number }) => <Ionicons name={name} color={typeof color === "string" ? color : T.text} size={size} />;
+import { T } from '../../src/ui/kit';
+import { AppTabBar, TabHeader } from '../../src/ui/nav';
 
 export default function TabsLayout() {
   return (
     <Tabs
+      // Riwayat tab: tombol kembali di header tab membawa ke tab sebelumnya.
+      backBehavior="history"
+      tabBar={(p) => <AppTabBar {...p} />}
       screenOptions={{
-        headerStyle: { backgroundColor: T.scheme === 'dark' ? T.bg : T.card },
-        headerTintColor: T.text,
-        headerTitleStyle: { ...font.bold, color: T.text },
-        tabBarStyle: { backgroundColor: T.scheme === 'dark' ? T.bg : T.card, borderTopColor: T.border, minHeight: 56 },
-        tabBarActiveTintColor: T.scheme === 'dark' ? T.action : T.action,
-        tabBarInactiveTintColor: T.muted,
-        tabBarLabelStyle: { fontSize: 12 },
+        header: (p) => <TabHeader options={p.options} navigation={p.navigation} />,
+        sceneStyle: { backgroundColor: T.bg },
+        animation: 'shift',
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Beranda', headerShown: false, tabBarIcon: icon('home-outline'), tabBarAccessibilityLabel: 'Beranda' }} />
-      <Tabs.Screen
-        name="belanja"
-        options={{ title: APP.catalogTabLabel, tabBarIcon: icon(APP.catalogTabLabel === 'Menu' ? 'restaurant-outline' : 'basket-outline'), tabBarAccessibilityLabel: APP.catalogTabLabel }}
-      />
-      <Tabs.Screen name="pesanan" options={{ title: 'Pesanan', tabBarIcon: icon('receipt-outline'), tabBarAccessibilityLabel: 'Pesanan' }} />
-      <Tabs.Screen name="akun" options={{ title: 'Akun', tabBarIcon: icon('person-circle-outline'), tabBarAccessibilityLabel: 'Akun' }} />
+      <Tabs.Screen name="index" options={{ title: 'Beranda', headerShown: false, tabBarAccessibilityLabel: 'Beranda' }} />
+      <Tabs.Screen name="belanja" options={{ title: APP.catalogTabLabel, tabBarAccessibilityLabel: APP.catalogTabLabel }} />
+      <Tabs.Screen name="pesanan" options={{ title: 'Pesanan', tabBarAccessibilityLabel: 'Pesanan' }} />
+      <Tabs.Screen name="akun" options={{ title: 'Akun', tabBarAccessibilityLabel: 'Akun' }} />
     </Tabs>
   );
 }

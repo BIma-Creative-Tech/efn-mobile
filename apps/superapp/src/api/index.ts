@@ -11,5 +11,5 @@ export const api = createApiClient({
   fetch: (url, init) => fetch(url, init),
   getToken: () => session.getValidToken(),
   onUnauthorized: () => session.logout('expired'),
-  clientId: `${APP.appId}-mobile/0.1.0`,
+  clientId: `${APP.appId}-mobile/0.2.0`,
 });

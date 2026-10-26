@@ -40,7 +40,7 @@ type SimStatus = 'paid' | 'expired' | 'failed';
 function MockBadge() {
   return (
     <View accessibilityLabel="Mode simulasi, bukan pembayaran sungguhan" style={{ alignSelf: 'flex-start', borderRadius: 6, backgroundColor: T.accent, paddingHorizontal: 8, paddingVertical: 2 }}>
-      <Text style={[{ color: T.onAction, fontSize: 11, letterSpacing: 1 }, font.bold]}>SIMULASI</Text>
+      <Text style={[{ color: T.text, fontSize: 11, letterSpacing: 1 }, font.bold]}>SIMULASI</Text>
     </View>
   );
 }

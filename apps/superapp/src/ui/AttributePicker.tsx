@@ -10,7 +10,7 @@
 import { Text, View } from 'react-native';
 import { isMultiAttribute, selectValue, type ProductAttribute, type Selection } from '../lib/attributes';
 import { formatRupiah } from '../lib/format';
-import { Body, T, Touchable, font } from './kit';
+import { RADIUS, T, Touchable, font } from './kit';
 
 interface Props {
   attributes: readonly ProductAttribute[];
@@ -31,7 +31,7 @@ function OptionChip({ label, extra, selected, multi, disabled, onPress }: { labe
       label={extraText ? `${label}, tambah ${formatRupiah(extra)}` : label}
       onPress={onPress}
       style={{
-        borderRadius: T.radius,
+        borderRadius: RADIUS.pill,
         borderWidth: selected ? 2 : 1,
         borderColor: selected ? T.action : T.border,
         backgroundColor: selected ? T.action : T.card,
@@ -52,7 +52,6 @@ function OptionChip({ label, extra, selected, multi, disabled, onPress }: { labe
 
 export function AttributePicker({ attributes, selection, onChange, missing = [], disabled }: Props) {
   if (attributes.length === 0) return null;
-  const anyExtra = attributes.some((a) => a.values.some((v) => v.price_extra_excl > 0));
   return (
     <View style={{ gap: 14 }}>
       {attributes.map((a) => {
@@ -92,11 +91,6 @@ export function AttributePicker({ attributes, selection, onChange, missing = [],
           </View>
         );
       })}
-      {anyExtra ? (
-        <Body muted small>
-          Tambahan harga belum termasuk pajak.
-        </Body>
-      ) : null}
     </View>
   );
 }
