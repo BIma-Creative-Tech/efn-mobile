@@ -25,6 +25,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: BUNDLE_ID,
+    // versionCode naik setiap build CI (EFN_VERSION_CODE) agar APK baru selalu bisa menimpa versi lama.
+    versionCode: Math.max(1, Number.parseInt(process.env.EFN_VERSION_CODE ?? '2', 10) || 2),
     permissions: ['android.permission.CAMERA', 'android.permission.POST_NOTIFICATIONS'],
     blockedPermissions: ['android.permission.RECORD_AUDIO'],
   },

@@ -58,7 +58,7 @@ jobs:
             echo "::error::api_base_url harus https://<host>[:port] tanpa path (bukan: $url)"; exit 1
           fi
           mock=false; [[ "$IN_PAYMENT_MOCKUP" == true ]] && mock=true
-          { echo "EFN_API_BASE_URL=$url"; echo "EFN_PAYMENT_MOCKUP=$mock"; } >> "$GITHUB_ENV"
+          { echo "EFN_API_BASE_URL=$url"; echo "EFN_PAYMENT_MOCKUP=$mock"; echo "EFN_VERSION_CODE=$((GITHUB_RUN_NUMBER + 10))"; } >> "$GITHUB_ENV"
           if [[ -n "$DEV_CA_PEM" ]]; then
             printf '%s\n' "$DEV_CA_PEM" > "$RUNNER_TEMP/dev-ca.pem"
             if grep -q "PRIVATE KEY" "$RUNNER_TEMP/dev-ca.pem" || ! openssl x509 -in "$RUNNER_TEMP/dev-ca.pem" -noout 2>/dev/null; then
@@ -100,11 +100,11 @@ jobs:
             cat android/app/src/main/res/xml/network_security_config.xml
           fi
 
-      - name: Gradle assembleRelease (x86_64 emulator + arm64 HP)
+      - name: Gradle assembleRelease (x86_64 emulator + arm64 & armeabi-v7a HP)
         working-directory: ${{ env.APP_DIR }}/android
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: ./gradlew --no-daemon -PreactNativeArchitectures=x86_64,arm64-v8a assembleRelease
+        run: ./gradlew --no-daemon -PreactNativeArchitectures=x86_64,arm64-v8a,armeabi-v7a assembleRelease
 
       - name: Verifikasi APK
         id: apk
@@ -139,7 +139,7 @@ jobs:
 
           - Commit: \`${GITHUB_SHA::7}\` (${GITHUB_REF_NAME})
           - BFF: \`${EFN_API_BASE_URL}\` · mockup pembayaran: \`${EFN_PAYMENT_MOCKUP}\` · CA dev: \`$([[ -n "${EFN_DEV_CA_FILE:-}" ]] && echo ya || echo tidak)\`
-          - ABI: x86_64 (BlueStacks/emulator) + arm64-v8a (HP) · ditandatangani debug keystore React Native
+          - ABI: x86_64 (BlueStacks/emulator) + arm64-v8a & armeabi-v7a (HP 64/32-bit) · ditandatangani debug keystore React Native
           - SHA-256: lihat \`${APK}.sha256\`
 
           Pasang: seret APK ke BlueStacks (atau *Install APK*). Versi baru bisa dipasang menimpa versi lama.
