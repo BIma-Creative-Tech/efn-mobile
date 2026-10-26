@@ -1,5 +1,5 @@
 jest.mock('expo-constants', () => ({ __esModule: true, default: { expoConfig: { extra: {} } } }));
-import { API_DISCOVERY_URL, parseDiscovery, resolveDiscoveryUrl } from '../src/config/env';
+import { API_DISCOVERY_URL, isDeadTunnel, parseDiscovery, resolveDiscoveryUrl } from '../src/config/env';
 
 describe('alamat BFF dinamis (build uji tunnel)', () => {
   it('mati bila env kosong', () => {
@@ -19,5 +19,15 @@ describe('alamat BFF dinamis (build uji tunnel)', () => {
     expect(parseDiscovery({ api_base_url: 'http://x.trycloudflare.com' })).toBeNull();
     expect(parseDiscovery(null)).toBeNull();
     expect(parseDiscovery('x')).toBeNull();
+  });
+});
+
+describe('tunnel mati di tengah pemakaian → baca ulang pointer', () => {
+  it('hanya galat jaringan dan 530 Cloudflare; galat BFF biasa tidak', () => {
+    expect(isDeadTunnel(0, 'network')).toBe(true);
+    expect(isDeadTunnel(530, 'http_530')).toBe(true);
+    for (const [st, c] of [[0, 'timeout'], [401, 'unauthenticated'], [429, 'rate_limited'], [502, 'bad_gateway'], [503, 'service_unavailable']] as const) {
+      expect(isDeadTunnel(st, c)).toBe(false);
+    }
   });
 });

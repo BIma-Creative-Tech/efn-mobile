@@ -43,6 +43,11 @@ export function parseDiscovery(body: unknown): string | null {
   return url && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(url) ? url : null;
 }
 
+/** Gejala quick tunnel yang sudah mati: DNS/koneksi gagal (`network`) atau HTTP 530 Cloudflare (error 1033, origin hilang). */
+export function isDeadTunnel(status: number, code: string): boolean {
+  return code === 'network' || status === 530;
+}
+
 /**
  * Mockup pembayaran (K25-07): hanya `true` literal dari build (env `EFN_PAYMENT_MOCKUP=true`). Default mati.
  * Lapis kedua: BFF menolak simulasi di production.
