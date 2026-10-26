@@ -11,6 +11,7 @@ import { Image } from 'expo-image';
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { APP, ion, type BrandInfo, type IconRef } from '../config/brand';
 import { useReduceMotion } from './motion';
+import { splitLayoutStyle } from './press-style';
 
 export const T = APP.theme;
 export const MIN_TOUCH = 44;
@@ -90,8 +91,10 @@ export function Touchable({
   const scale = useSharedValue(1);
   const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const checkable = role === 'radio' || role === 'checkbox';
+  const { outer, inner } = splitLayoutStyle(style);
   return (
     <Pressable
+      style={outer}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole={role}
@@ -106,7 +109,7 @@ export function Touchable({
         if (!reduce) scale.value = withSpring(1, { damping: 12, stiffness: 240 });
       }}
     >
-      <Animated.View style={[{ minHeight: MIN_TOUCH, justifyContent: 'center' }, style, anim, disabled ? { opacity: 0.45 } : null]}>{children}</Animated.View>
+      <Animated.View style={[{ minHeight: MIN_TOUCH, justifyContent: 'center' }, inner, anim, disabled ? { opacity: 0.45 } : null]}>{children}</Animated.View>
     </Pressable>
   );
 }

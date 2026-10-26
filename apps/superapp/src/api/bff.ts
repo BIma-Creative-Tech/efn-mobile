@@ -55,11 +55,18 @@ export function imageUrl(baseUrl: string, sha: string | null | undefined, size: 
 // ---- auth (§3.2, §8.1) ----
 export const getChallenge = (c: ApiClient) => map(c.request('GET', '/v1/auth/challenge'), parseAltchaChallenge);
 export const requestOtp = (c: ApiClient, phone: string, altcha: string) =>
-  map(c.request('POST', '/v1/auth/otp/request', { body: { phone, altcha } }), (v) =>
-    v && typeof v === 'object' && typeof (v as { challenge_id?: unknown }).challenge_id === 'string'
-      ? { challenge_id: (v as { challenge_id: string }).challenge_id, expires_in: Number((v as { expires_in?: unknown }).expires_in) || 180 }
-      : null,
-  );
+  map(c.request('POST', '/v1/auth/otp/request', { body: { phone, altcha } }), parseOtpRequest);
+
+/**
+ * §3.2 v5.2: `dev_code` hanya dikirim BFF dev untuk nomor uji (WhatsApp belum aktif). Diterima hanya bila tepat 6 digit;
+ * selain itu diabaikan (respons produksi tidak pernah memuatnya).
+ */
+export function parseOtpRequest(v: unknown): { challenge_id: string; expires_in: number; dev_code?: string } | null {
+  if (!v || typeof v !== 'object' || typeof (v as { challenge_id?: unknown }).challenge_id !== 'string') return null;
+  const o = v as { challenge_id: string; expires_in?: unknown; dev_code?: unknown };
+  const out = { challenge_id: o.challenge_id, expires_in: Number(o.expires_in) || 180 };
+  return typeof o.dev_code === 'string' && /^\d{6}$/.test(o.dev_code) ? { ...out, dev_code: o.dev_code } : out;
+}
 export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean) =>
   map(c.request('POST', '/v1/auth/otp/verify', { body: { challenge_id, code, age_confirmed } }), (v) => {
     const o = v as { access_token?: unknown; token_type?: unknown; expires_in?: unknown } | null;

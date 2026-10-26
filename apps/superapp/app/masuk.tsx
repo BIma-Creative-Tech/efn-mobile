@@ -38,6 +38,8 @@ export default function Masuk() {
   const [busy, setBusy] = useState<null | 'pow' | 'send' | 'verify'>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // Mode uji (BFF dev, WhatsApp belum aktif): kode dari respons, ditampilkan + diisikan otomatis.
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(0);
   const cancelled = useRef(false);
 
@@ -69,9 +71,10 @@ export default function Masuk() {
     if (!r.ok) return setError(otpRequestErrorMessage(r.status, r.code));
     setChallengeId(r.data.challenge_id);
     setStep('code');
-    setCode('');
+    setDevCode(r.data.dev_code ?? null);
+    setCode(r.data.dev_code ?? '');
     setResendIn(RESEND_SECONDS);
-    setInfo(`Kode dikirim ke ${maskPhoneDisplay(ref)}.`);
+    setInfo(r.data.dev_code ? `Mode uji: WhatsApp belum aktif, kode untuk ${maskPhoneDisplay(ref)} sudah diisikan.` : `Kode dikirim ke ${maskPhoneDisplay(ref)}.`);
   }
 
   async function onSubmitPhone() {
@@ -147,6 +150,11 @@ export default function Masuk() {
         ) : (
           <Animated.View key="code" entering={enter} style={{ gap: 14 }}>
             <InfoBanner message={info} icon={ion('chatbubble-ellipses-outline')} />
+            {devCode ? (
+              <Text accessibilityLabel={`Kode uji ${devCode.split('').join(' ')}`} style={[{ color: T.muted, fontSize: 13, textAlign: 'center' }, font.body]}>
+                Kode uji: <Text style={[{ color: T.text, letterSpacing: 2 }, font.bold]}>{devCode}</Text>
+              </Text>
+            ) : null}
             <TextInput
               style={[styles.input, { fontSize: 28, letterSpacing: 12, textAlign: 'center', minHeight: 64 }, font.bold]}
               value={code}
@@ -176,6 +184,7 @@ export default function Masuk() {
                 onPress={() => {
                   setStep('phone');
                   setChallengeId(null);
+                  setDevCode(null);
                   setCode('');
                   setError(null);
                   setInfo(null);
