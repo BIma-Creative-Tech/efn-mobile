@@ -69,25 +69,42 @@ export function parseOtpRequest(v: unknown): { challenge_id: string; expires_in:
   const out = { challenge_id: o.challenge_id, expires_in: Number(o.expires_in) || 180 };
   return typeof o.dev_code === 'string' && /^\d{6}$/.test(o.dev_code) ? { ...out, dev_code: o.dev_code } : out;
 }
-/** §18.3: `marketingVersion` dikirim HANYA bila member mencentang consent pemasaran (opsional). */
-export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean, marketingVersion?: string | null) =>
-  map(c.request('POST', '/v1/auth/otp/verify', { body: { challenge_id, code, age_confirmed, ...(marketingVersion ? { marketing_consent: { granted: true, version: marketingVersion } } : {}) } }), (v) => {
+/**
+ * §18.3: `marketingVersion` dikirim HANYA bila member mencentang consent pemasaran (opsional).
+ * §18.3a: `privacyVersion` = persetujuan Kebijakan Privasi (wajib di layar masuk).
+ */
+export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean, marketingVersion?: string | null, privacyVersion?: string | null) =>
+  map(
+    c.request('POST', '/v1/auth/otp/verify', {
+      body: {
+        challenge_id,
+        code,
+        age_confirmed,
+        ...(privacyVersion ? { privacy_consent: { granted: true, version: privacyVersion } } : {}),
+        ...(marketingVersion ? { marketing_consent: { granted: true, version: marketingVersion } } : {}),
+      },
+    }),
+    (v) => {
     const o = v as { access_token?: unknown; token_type?: unknown; expires_in?: unknown } | null;
     if (!o || typeof o.access_token !== 'string' || o.access_token.length < 16 || o.access_token.length > 4096) return null;
     if (typeof o.token_type === 'string' && o.token_type.toLowerCase() !== 'bearer') return null;
     return { access_token: o.access_token, expires_in: typeof o.expires_in === 'number' && o.expires_in > 0 ? o.expires_in : 3600 };
-  });
+    },
+  );
 export const getMe = (c: ApiClient) => map(c.request('GET', '/v1/me', { auth: 'required' }), parseMe);
 
 // ---- promo & consent (§18.2–18.3, §8.4) ----
 export const getPromo = (c: ApiClient) => map(c.request('GET', '/v1/promo?surface=app'), parsePromoFeed);
-export type ConsentState = { purpose: 'location' | 'marketing'; granted: boolean; version: string | null };
+export type ConsentState = { purpose: 'location' | 'marketing' | 'privacy'; granted: boolean; version: string | null; updated_at: string | null };
 export const getConsents = (c: ApiClient) =>
   map(c.request('GET', '/v1/me/consents', { auth: 'required' }), (v): ConsentState[] | null =>
     Array.isArray(v)
       ? v
-          .filter((x): x is { purpose: 'location' | 'marketing'; granted: boolean; version?: unknown } => !!x && typeof x === 'object' && ((x as { purpose?: unknown }).purpose === 'location' || (x as { purpose?: unknown }).purpose === 'marketing') && typeof (x as { granted?: unknown }).granted === 'boolean')
-          .map((x) => ({ purpose: x.purpose, granted: x.granted, version: typeof x.version === 'string' ? x.version : null }))
+          .filter(
+            (x): x is { purpose: ConsentState['purpose']; granted: boolean; version?: unknown; updated_at?: unknown } =>
+              !!x && typeof x === 'object' && ['location', 'marketing', 'privacy'].includes((x as { purpose?: unknown }).purpose as string) && typeof (x as { granted?: unknown }).granted === 'boolean',
+          )
+          .map((x) => ({ purpose: x.purpose, granted: x.granted, version: typeof x.version === 'string' ? x.version : null, updated_at: typeof x.updated_at === 'string' ? x.updated_at : null }))
       : null,
   );
 export const putConsent = (c: ApiClient, purpose: 'marketing', granted: boolean, version: string) =>

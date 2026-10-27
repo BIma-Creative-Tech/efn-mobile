@@ -68,9 +68,18 @@ export default function Akun() {
   // G27 §18.3: consent info promo (WhatsApp + notifikasi aplikasi) — bisa dicabut kapan saja di sini.
   const [marketing, setMarketing] = useState<boolean | null>(null);
   const [marketingBusy, setMarketingBusy] = useState(false);
+  // G27 §18.3a: status persetujuan Kebijakan Privasi (bukti versi + tanggal); tarik = hapus akun.
+  const [privacy, setPrivacy] = useState<{ version: string | null; updated_at: string | null } | null>(null);
   useEffect(() => {
-    if (!loggedIn) return setMarketing(null);
-    void getConsents(api).then((r) => setMarketing(r.ok ? r.data.some((c) => c.purpose === 'marketing' && c.granted) : null));
+    if (!loggedIn) {
+      setPrivacy(null);
+      return setMarketing(null);
+    }
+    void getConsents(api).then((r) => {
+      setMarketing(r.ok ? r.data.some((c) => c.purpose === 'marketing' && c.granted) : null);
+      const p = r.ok ? r.data.find((c) => c.purpose === 'privacy' && c.granted) : undefined;
+      setPrivacy(p ? { version: p.version, updated_at: p.updated_at } : { version: null, updated_at: null });
+    });
   }, [loggedIn]);
 
   if (loggedIn === null) return <Loading />;
@@ -136,6 +145,20 @@ export default function Akun() {
           />
           {loggedIn ? (
             <>
+              <Divider />
+              <MenuRow
+                icon={mci('shield-account-outline')}
+                label="Kebijakan Privasi & data akun"
+                hint={
+                  privacy === null
+                    ? 'Memeriksa…'
+                    : privacy.version
+                      ? `Disetujui${privacy.updated_at ? ` ${new Date(privacy.updated_at).toLocaleDateString('id-ID')}` : ''} · tarik = hapus akun`
+                      : 'Belum tercatat · diminta saat masuk berikutnya'
+                }
+                right={privacy?.version ? <Badge label="Disetujui" tone="success" /> : undefined}
+                onPress={() => router.push('/privasi')}
+              />
               <Divider />
               <MenuRow
                 icon={mci('tag-heart-outline')}

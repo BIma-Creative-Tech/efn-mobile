@@ -9,6 +9,7 @@ export function otpVerifyErrorMessage(status: number, code: string, body: unknow
   if (code === 'network' || code === 'timeout') return errorMessage(code);
   if (status === 400) {
     if (b.error?.code === 'age_confirmation_required') return errorMessage('age_confirmation_required');
+    if (b.error?.code === 'privacy_consent_required') return errorMessage('privacy_consent_required');
     if (b.reason === 'expired') return 'Kode sudah kedaluwarsa. Minta kode baru.';
     if (b.reason === 'locked') return 'Terlalu banyak percobaan. Minta kode baru.';
     if (typeof b.attempts_left === 'number') return `Kode tidak cocok. Sisa percobaan: ${b.attempts_left}.`;

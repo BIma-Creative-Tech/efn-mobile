@@ -110,6 +110,17 @@ export function pickPopup(popups: PromoItem[], seen: Record<string, string>, tod
 }
 
 /**
+ * G27 §18.3a (UU PDP): persetujuan Kebijakan Privasi WAJIB, centang terpisah di layar masuk. Penarikan = hapus akun.
+ * HARUS sama persis dengan web `lib/consent.ts` PRIVACY_CONSENT dan env BFF `CONSENT_PRIVACY_*` (sha256 body).
+ */
+export const PRIVACY_CONSENT = {
+  version: 'privacy@2026-10-27',
+  body:
+    'Saya telah membaca dan menyetujui Kebijakan Privasi EFN, termasuk pemrosesan data pribadi saya ' +
+    '(nomor HP, pesanan, poin, dan data teknis perangkat) untuk akun, pesanan, dan program poin di semua brand EFN.',
+} as const;
+
+/**
  * Consent pemasaran (docs/04 §18.3, DRAFT DPO/Legal). HARUS sama persis dengan web `lib/consent.ts` dan env BFF
  * `CONSENT_MARKETING_*` (sha256 teks) — BFF menolak versi lain (`stale_text`).
  */

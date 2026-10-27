@@ -69,6 +69,7 @@ export default function RootLayout() {
           <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
           <Stack.Screen name="izin-notifikasi" options={{ title: 'Notifikasi', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="masuk" options={{ title: 'Masuk', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="privasi" options={{ title: 'Kebijakan Privasi' }} />
           <Stack.Screen name="produk/[id]" options={{ title: 'Detail produk' }} />
           <Stack.Screen name="keranjang" options={{ title: 'Keranjang' }} />
           <Stack.Screen name="checkout" options={{ title: 'Pembayaran' }} />

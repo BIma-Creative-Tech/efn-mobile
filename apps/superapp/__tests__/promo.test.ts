@@ -1,4 +1,4 @@
-import { localDay, MARKETING_CONSENT, parsePromoFeed, parsePromoLink, parseSeen, pickPopup, promoImageUrl, promoTarget, type PromoItem } from '../src/lib/promo';
+import { localDay, MARKETING_CONSENT, PRIVACY_CONSENT, parsePromoFeed, parsePromoLink, parseSeen, pickPopup, promoImageUrl, promoTarget, type PromoItem } from '../src/lib/promo';
 import type { Channel } from '../src/api/types';
 
 const SHA = 'a'.repeat(64);
@@ -51,5 +51,14 @@ describe('G27 consent pemasaran (docs/04 §18.3)', () => {
     const { createHash } = require('crypto') as typeof import('crypto');
     expect(MARKETING_CONSENT.version).toBe('marketing@2026-10-27');
     expect(createHash('sha256').update(MARKETING_CONSENT.body, 'utf8').digest('hex')).toBe('cbf5fd4dddcb361e1512b7b10ae7e0a80799c587db3d9dab951810e65afc750e');
+  });
+});
+
+describe('G27 §18.3a persetujuan Kebijakan Privasi', () => {
+  it('teks & versi sama persis dengan web + env BFF', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createHash } = require('crypto') as typeof import('crypto');
+    expect(PRIVACY_CONSENT.version).toBe('privacy@2026-10-27');
+    expect(createHash('sha256').update(PRIVACY_CONSENT.body, 'utf8').digest('hex')).toBe('b66c21588d1d7ecd2c9edcde1bc813c4e138f00708f8b3c6004226f80a1593e2');
   });
 });

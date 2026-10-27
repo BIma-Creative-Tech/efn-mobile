@@ -15,7 +15,7 @@ import { CORE_BRANDS, ion } from '../src/config/brand';
 import { encodeAltchaPayload, solveAltcha } from '../src/lib/altcha';
 import { formatCountdown } from '../src/lib/format';
 import { otpRequestErrorMessage, otpVerifyErrorMessage } from '../src/lib/forms';
-import { MARKETING_CONSENT } from '../src/lib/promo';
+import { MARKETING_CONSENT, PRIVACY_CONSENT } from '../src/lib/promo';
 import { syncPushRegistration } from '../src/lib/push';
 import { maskPhoneDisplay, normalizeIndonesianPhone } from '../src/lib/phone';
 import { cartActions } from '../src/state/cart';
@@ -39,6 +39,8 @@ export default function Masuk() {
   const [age, setAge] = useState(false);
   // G27 §18.3 (UU PDP): consent pemasaran OPSIONAL, tidak tercentang default; masuk tetap bisa tanpanya.
   const [marketing, setMarketing] = useState(false);
+  // G27 §18.3a (UU PDP): persetujuan Kebijakan Privasi WAJIB, centang terpisah dari usia & promo.
+  const [privacy, setPrivacy] = useState(false);
   const [busy, setBusy] = useState<null | 'pow' | 'send' | 'verify'>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -92,9 +94,10 @@ export default function Masuk() {
     if (!challengeId) return;
     if (!/^\d{6}$/.test(code)) return setError('Masukkan 6 digit kode verifikasi.');
     if (!age) return setError(errorMessage('age_confirmation_required'));
+    if (!privacy) return setError(errorMessage('privacy_consent_required'));
     setError(null);
     setBusy('verify');
-    const r = await verifyOtp(api, challengeId, code, age, marketing ? MARKETING_CONSENT.version : null);
+    const r = await verifyOtp(api, challengeId, code, age, marketing ? MARKETING_CONSENT.version : null, PRIVACY_CONSENT.version);
     if (!r.ok) {
       setBusy(null);
       return setError(otpVerifyErrorMessage(r.status, r.code, r.body));
@@ -176,8 +179,21 @@ export default function Masuk() {
                 <View style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: age ? T.action : T.border, backgroundColor: age ? T.action : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                   {age ? <Ionicons name="checkmark" size={17} color={T.onAction} /> : null}
                 </View>
-                <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>Saya berusia minimal 17 tahun dan menyetujui syarat & kebijakan privasi.</Text>
+                <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>Saya berusia minimal 17 tahun.</Text>
               </View>
+            </Touchable>
+            <Touchable label="Setuju Kebijakan Privasi dan pemrosesan data pribadi (wajib)" role="checkbox" selected={privacy} onPress={() => setPrivacy((v) => !v)}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                <View style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: privacy ? T.action : T.border, backgroundColor: privacy ? T.action : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {privacy ? <Ionicons name="checkmark" size={17} color={T.onAction} /> : null}
+                </View>
+                <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>
+                  {PRIVACY_CONSENT.body} <Text style={{ color: T.muted }}>(Wajib)</Text>
+                </Text>
+              </View>
+            </Touchable>
+            <Touchable label="Baca Kebijakan Privasi" onPress={() => router.push('/privasi')}>
+              <Text style={[{ color: T.action, fontSize: 14, textDecorationLine: 'underline', marginLeft: 38 }, font.bold]}>Baca Kebijakan Privasi</Text>
             </Touchable>
             <Touchable label="Info promo lewat WhatsApp dan notifikasi aplikasi (opsional)" role="checkbox" selected={marketing} onPress={() => setMarketing((v) => !v)}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>

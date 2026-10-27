@@ -8,6 +8,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   // auth
   captcha_required: 'Verifikasi keamanan kedaluwarsa. Coba kirim kode lagi.',
   age_confirmation_required: 'Centang pernyataan bahwa Anda berusia minimal 17 tahun, lalu tekan Masuk lagi. Kode yang sama masih bisa dipakai.',
+  privacy_consent_required: 'Setujui Kebijakan Privasi dan pemrosesan data pribadi, lalu tekan Masuk lagi. Kode yang sama masih bisa dipakai.',
   invalid_phone: 'Nomor HP tidak valid. Contoh: 0812 3456 7890.',
   unauthenticated: 'Sesi berakhir. Silakan masuk kembali.',
   unauthorized: 'Sesi berakhir. Silakan masuk kembali.',
