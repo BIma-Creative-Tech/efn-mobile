@@ -2,6 +2,7 @@
  * Beranda (gaya Eraspace, docs/design/superapp-concept.md §2/§6): hero emerald dengan parallax, deretan logo brand,
  * kartu poin emas, grid cara pesan berikon, lalu etalase per brand (logo + warna brand) dengan foto produk asli.
  * Bisa dijelajah tanpa login. Satu ide gerak utama: hero bergeser lebih lambat dari konten saat digulir.
+ * G27: hero menjadi slide pertama slider promo (banner + pop-up dikelola di Odoo `efn_promo`).
  */
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
@@ -27,6 +28,7 @@ import { ModePicker } from '../../src/ui/ModePicker';
 import { useReduceMotion } from '../../src/ui/motion';
 import { CartButton, useScrollReset, useTabTop } from '../../src/ui/nav';
 import { ProductCard } from '../../src/ui/ProductCard';
+import { HeroPromoSlider } from '../../src/ui/PromoSlider';
 import { isSoldOut, useStock } from '../../src/ui/useStock';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -168,6 +170,12 @@ export default function Home() {
     <View style={{ flex: 1, backgroundColor: T.bg }}>
       <Animated.ScrollView ref={scrollRef} scrollEventThrottle={16} contentContainerStyle={{ paddingBottom: 110 }} showsVerticalScrollIndicator={false}>
         <Animated.View style={[{ height: HERO_H + insets.top, overflow: 'hidden' }, gradient('#062e2a', '#0b4a40', 160), heroStyle]}>
+          {/* G27 §18.4: hero lama = slide 1 (tidak diubah); banner promo Odoo menyusul. Tanpa promo = hero saja. */}
+          <HeroPromoSlider
+            height={HERO_H + insets.top}
+            channels={list}
+            hero={
+        <View style={[{ flex: 1 }, gradient('#062e2a', '#0b4a40', 160)]}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -60, top: insets.top + 10, width: 220, height: 220, borderRadius: 110, borderWidth: 30, borderColor: 'rgba(223,180,34,0.12)' }} />
           <View pointerEvents="none" style={{ position: 'absolute', left: -40, bottom: 30, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(13,171,157,0.14)' }} />
           <Animated.View style={[{ flex: 1, paddingTop: insets.top + 10, paddingHorizontal: 20, paddingBottom: 40, justifyContent: 'space-between' }, heroContent]}>
@@ -190,6 +198,9 @@ export default function Home() {
               </View>
             </Touchable>
           </Animated.View>
+        </View>
+            }
+          />
         </Animated.View>
 
         <View style={{ marginTop: -24, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: T.bg, paddingTop: 20, paddingHorizontal: 16, gap: 26 }}>

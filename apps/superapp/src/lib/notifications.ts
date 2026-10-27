@@ -2,9 +2,11 @@
  * Izin notifikasi: TIDAK pernah dialog OS mendadak. Setelah pesanan/reservasi pertama berhasil, app membuka layar
  * penjelasan `/izin-notifikasi` sekali saja (pola Daily Bite / pedoman ScreensDesign). Dialog OS hanya muncul bila
  * pengguna menekan "Ya, aktifkan" di layar itu atau di menu Akun.
- * Pendaftaran token push ke BFF BELUM ada di kontrak — hanya izin OS.
+ * G27 §18.2: token push Expo didaftarkan ke BFF (`POST /v1/me/push-token`) HANYA bila member sudah login, izin OS
+ * diberikan, DAN consent pemasaran aktif. BFF tetap menyaring consent saat kirim (lapis kedua).
  */
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
 import { shouldOfferNotifications, type NotifPermission } from './onboarding';
@@ -32,6 +34,25 @@ export async function shouldOfferNotificationsAfterFirstSuccess(): Promise<boole
     return ok;
   } catch {
     return false; // izin tidak wajib
+  }
+}
+
+/**
+ * Ambil token Expo (butuh `projectId` EAS; build lokal tanpa EAS → null, tidak memblokir apa pun). Token tidak di-log.
+ */
+export async function getExpoPushToken(): Promise<string | null> {
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    if (!perm.granted) return null;
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('promo', { name: 'Promo', importance: Notifications.AndroidImportance.DEFAULT });
+    }
+    const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ?? Constants.easConfig?.projectId;
+    if (!projectId) return null;
+    const t = await Notifications.getExpoPushTokenAsync({ projectId });
+    return typeof t.data === 'string' ? t.data : null;
+  } catch {
+    return null;
   }
 }
 

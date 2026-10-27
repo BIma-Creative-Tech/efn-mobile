@@ -29,6 +29,7 @@ import {
   type TransferRejectReason,
 } from './types';
 import { parseAltchaChallenge } from '../lib/altcha';
+import { parsePromoFeed } from '../lib/promo';
 
 export const TABLE_SESSION_HEADER = 'x-table-session';
 
@@ -68,14 +69,31 @@ export function parseOtpRequest(v: unknown): { challenge_id: string; expires_in:
   const out = { challenge_id: o.challenge_id, expires_in: Number(o.expires_in) || 180 };
   return typeof o.dev_code === 'string' && /^\d{6}$/.test(o.dev_code) ? { ...out, dev_code: o.dev_code } : out;
 }
-export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean) =>
-  map(c.request('POST', '/v1/auth/otp/verify', { body: { challenge_id, code, age_confirmed } }), (v) => {
+/** §18.3: `marketingVersion` dikirim HANYA bila member mencentang consent pemasaran (opsional). */
+export const verifyOtp = (c: ApiClient, challenge_id: string, code: string, age_confirmed: boolean, marketingVersion?: string | null) =>
+  map(c.request('POST', '/v1/auth/otp/verify', { body: { challenge_id, code, age_confirmed, ...(marketingVersion ? { marketing_consent: { granted: true, version: marketingVersion } } : {}) } }), (v) => {
     const o = v as { access_token?: unknown; token_type?: unknown; expires_in?: unknown } | null;
     if (!o || typeof o.access_token !== 'string' || o.access_token.length < 16 || o.access_token.length > 4096) return null;
     if (typeof o.token_type === 'string' && o.token_type.toLowerCase() !== 'bearer') return null;
     return { access_token: o.access_token, expires_in: typeof o.expires_in === 'number' && o.expires_in > 0 ? o.expires_in : 3600 };
   });
 export const getMe = (c: ApiClient) => map(c.request('GET', '/v1/me', { auth: 'required' }), parseMe);
+
+// ---- promo & consent (§18.2–18.3, §8.4) ----
+export const getPromo = (c: ApiClient) => map(c.request('GET', '/v1/promo?surface=app'), parsePromoFeed);
+export type ConsentState = { purpose: 'location' | 'marketing'; granted: boolean; version: string | null };
+export const getConsents = (c: ApiClient) =>
+  map(c.request('GET', '/v1/me/consents', { auth: 'required' }), (v): ConsentState[] | null =>
+    Array.isArray(v)
+      ? v
+          .filter((x): x is { purpose: 'location' | 'marketing'; granted: boolean; version?: unknown } => !!x && typeof x === 'object' && ((x as { purpose?: unknown }).purpose === 'location' || (x as { purpose?: unknown }).purpose === 'marketing') && typeof (x as { granted?: unknown }).granted === 'boolean')
+          .map((x) => ({ purpose: x.purpose, granted: x.granted, version: typeof x.version === 'string' ? x.version : null }))
+      : null,
+  );
+export const putConsent = (c: ApiClient, purpose: 'marketing', granted: boolean, version: string) =>
+  map(c.request('PUT', `/v1/me/consents/${purpose}`, { auth: 'required', body: { granted, version } }), (v) => (v && typeof v === 'object' ? true : null));
+export const registerPushToken = (c: ApiClient, token: string, platform: 'android' | 'ios') =>
+  map(c.request('POST', '/v1/me/push-token', { auth: 'required', body: { token, platform } }), () => true);
 
 // ---- katalog (§10.3.2, §15.5) ----
 export const getChannels = (c: ApiClient, brandCode: string | null) => map(c.request('GET', channelsPath(brandCode)), parseChannels);

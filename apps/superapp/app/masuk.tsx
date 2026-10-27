@@ -15,6 +15,8 @@ import { CORE_BRANDS, ion } from '../src/config/brand';
 import { encodeAltchaPayload, solveAltcha } from '../src/lib/altcha';
 import { formatCountdown } from '../src/lib/format';
 import { otpRequestErrorMessage, otpVerifyErrorMessage } from '../src/lib/forms';
+import { MARKETING_CONSENT } from '../src/lib/promo';
+import { syncPushRegistration } from '../src/lib/push';
 import { maskPhoneDisplay, normalizeIndonesianPhone } from '../src/lib/phone';
 import { cartActions } from '../src/state/cart';
 import { session } from '../src/state/session';
@@ -35,6 +37,8 @@ export default function Masuk() {
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [age, setAge] = useState(false);
+  // G27 §18.3 (UU PDP): consent pemasaran OPSIONAL, tidak tercentang default; masuk tetap bisa tanpanya.
+  const [marketing, setMarketing] = useState(false);
   const [busy, setBusy] = useState<null | 'pow' | 'send' | 'verify'>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -90,13 +94,14 @@ export default function Masuk() {
     if (!age) return setError(errorMessage('age_confirmation_required'));
     setError(null);
     setBusy('verify');
-    const r = await verifyOtp(api, challengeId, code, age);
+    const r = await verifyOtp(api, challengeId, code, age, marketing ? MARKETING_CONSENT.version : null);
     if (!r.ok) {
       setBusy(null);
       return setError(otpVerifyErrorMessage(r.status, r.code, r.body));
     }
     await session.login(r.data.access_token, r.data.expires_in);
     await cartActions.syncAfterLogin();
+    if (marketing) void syncPushRegistration();
     setBusy(null);
     if (next === 'back') router.back();
     else router.replace(next as never);
@@ -172,6 +177,16 @@ export default function Masuk() {
                   {age ? <Ionicons name="checkmark" size={17} color={T.onAction} /> : null}
                 </View>
                 <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>Saya berusia minimal 17 tahun dan menyetujui syarat & kebijakan privasi.</Text>
+              </View>
+            </Touchable>
+            <Touchable label="Info promo lewat WhatsApp dan notifikasi aplikasi (opsional)" role="checkbox" selected={marketing} onPress={() => setMarketing((v) => !v)}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                <View style={{ width: 26, height: 26, borderRadius: 8, borderWidth: 2, borderColor: marketing ? T.action : T.border, backgroundColor: marketing ? T.action : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {marketing ? <Ionicons name="checkmark" size={17} color={T.onAction} /> : null}
+                </View>
+                <Text style={[{ color: T.text, fontSize: 14, flex: 1, lineHeight: 20 }, font.body]}>
+                  {MARKETING_CONSENT.body} <Text style={{ color: T.muted }}>(Opsional)</Text>
+                </Text>
               </View>
             </Touchable>
             <ErrorBanner message={error} />

@@ -5,7 +5,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../../src/api';
-import { getMe } from '../../src/api/bff';
+import { getConsents, getMe } from '../../src/api/bff';
+import { setMarketingConsent } from '../../src/lib/push';
 import { errorMessage } from '../../src/api/errors';
 import type { Me } from '../../src/api/types';
 import { APP, ion, mci, type IconRef } from '../../src/config/brand';
@@ -63,6 +64,13 @@ export default function Akun() {
   useEffect(() => {
     if (!loggedIn) return setMe(null);
     void getMe(api).then((r) => (r.ok ? setMe(r.data) : setErr(r.code)));
+  }, [loggedIn]);
+  // G27 §18.3: consent info promo (WhatsApp + notifikasi aplikasi) — bisa dicabut kapan saja di sini.
+  const [marketing, setMarketing] = useState<boolean | null>(null);
+  const [marketingBusy, setMarketingBusy] = useState(false);
+  useEffect(() => {
+    if (!loggedIn) return setMarketing(null);
+    void getConsents(api).then((r) => setMarketing(r.ok ? r.data.some((c) => c.purpose === 'marketing' && c.granted) : null));
   }, [loggedIn]);
 
   if (loggedIn === null) return <Loading />;
@@ -126,6 +134,27 @@ export default function Akun() {
             right={notif === 'on' ? <Badge label="Aktif" tone="success" /> : undefined}
             onPress={notif === 'ask' || notif === 'settings' ? async () => setPerm(await requestNotifications()) : undefined}
           />
+          {loggedIn ? (
+            <>
+              <Divider />
+              <MenuRow
+                icon={mci('tag-heart-outline')}
+                label="Info promo (WhatsApp & notifikasi)"
+                hint={marketing === null ? 'Memeriksa…' : marketing ? 'Aktif · ketuk untuk berhenti' : 'Nonaktif · ketuk untuk menerima promo'}
+                right={marketing ? <Badge label="Aktif" tone="success" /> : undefined}
+                onPress={
+                  marketing === null || marketingBusy
+                    ? undefined
+                    : async () => {
+                        setMarketingBusy(true);
+                        const next = !marketing;
+                        if (await setMarketingConsent(next)) setMarketing(next);
+                        setMarketingBusy(false);
+                      }
+                }
+              />
+            </>
+          ) : null}
           <Divider />
           <MenuRow
             icon={ion('sparkles-outline')}
