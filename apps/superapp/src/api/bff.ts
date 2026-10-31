@@ -30,6 +30,7 @@ import {
 } from './types';
 import { parseAltchaChallenge } from '../lib/altcha';
 import { parsePromoFeed } from '../lib/promo';
+import { parseReferralView } from '../lib/referral';
 
 export const TABLE_SESSION_HEADER = 'x-table-session';
 
@@ -109,6 +110,14 @@ export const getConsents = (c: ApiClient) =>
   );
 export const putConsent = (c: ApiClient, purpose: 'marketing', granted: boolean, version: string) =>
   map(c.request('PUT', `/v1/me/consents/${purpose}`, { auth: 'required', body: { granted, version } }), (v) => (v && typeof v === 'object' ? true : null));
+// ---- referral MGM (§20.2, G33 §20.11) — 503 mgm_unavailable selama program OFF ----
+export const getReferral = (c: ApiClient) => map(c.request('GET', '/v1/me/referral', { auth: 'required' }), parseReferralView);
+export const claimReferral = (c: ApiClient, code: string) =>
+  map(c.request('POST', '/v1/me/referral/claim', { auth: 'required', body: { code } }), (v) =>
+    v && typeof v === 'object' && (v as { status?: unknown }).status === 'linked' && typeof (v as { linked_at?: unknown }).linked_at === 'string'
+      ? { linkedAt: (v as { linked_at: string }).linked_at }
+      : null,
+  );
 export const registerPushToken = (c: ApiClient, token: string, platform: 'android' | 'ios') =>
   map(c.request('POST', '/v1/me/push-token', { auth: 'required', body: { token, platform } }), () => true);
 

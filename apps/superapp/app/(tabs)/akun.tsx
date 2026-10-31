@@ -130,6 +130,8 @@ export default function Akun() {
             ) : null}
             <Divider />
             <MenuRow icon={ion('restaurant')} label="Makan di tempat" hint="Pindai QR di meja" onPress={() => router.push('/scan-meja')} />
+            <Divider />
+            <MenuRow icon={mci('account-multiple-plus-outline')} label="Ajak teman" hint="Kode ajakan & poin referral" onPress={() => router.push('/referral')} />
           </Card>
         </Reveal>
       ) : null}
